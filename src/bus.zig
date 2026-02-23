@@ -18,6 +18,7 @@ const memory_map = struct {
     pub const irq_control = Range{ .start = 0x1f80_1070, .end = 0x1f80_1078 - 1 };
     pub const dma = Range{ .start = 0x1f80_1080, .end = 0x1f80_1100 - 1 };
     pub const timers = Range{ .start = 0x1f80_1100, .end = 0x1f80_1130 - 1 };
+    pub const gpu = Range{ .start = 0x1f80_1810, .end = 0x1f80_1818 - 1 };
     pub const spu = Range{ .start = 0x1f80_1c00, .end = 0x1f80_1e80 - 1 };
 
     pub const exp2 = Range{ .start = 0x1f80_2000, .end = 0x1f80_4000 - 1 };
@@ -81,6 +82,10 @@ pub const Bus = struct {
             },
             memory_map.irq_control.start...memory_map.irq_control.end => 0x00,
             memory_map.bios.start...memory_map.bios.end => self.bios.read32(address - memory_map.bios.start),
+            memory_map.gpu.start...memory_map.gpu.end => {
+                std.debug.print("bus: Unhandled read32 from GPU\n", .{});
+                return 0;
+            },
             else => std.debug.panic("bus: Unsupported read32: {x}", .{address}),
         };
     }
