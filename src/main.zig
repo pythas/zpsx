@@ -18,8 +18,7 @@ pub fn main() !void {
     var cpu = Cpu.init(&bus);
     defer cpu.deinit();
 
-    // const bios_data = try readBinaryFile(allocator, "data/SCPH1001.BIN");
-    const bios_data = try readBinaryFile(allocator, "tests/lw.bin");
+    const bios_data = try readBinaryFile(allocator, "data/SCPH1001.BIN");
     try bus.loadBios(bios_data);
     allocator.free(bios_data);
 
@@ -74,7 +73,7 @@ test "CPU: load delay slot read visibility" {
 
     try std.testing.expect(timeout > 0);
 
-    try std.testing.expectEqual(@as(u32, 0xABCD0000), bus.read(0));
+    try std.testing.expectEqual(@as(u32, 0xABCD0000), bus.read32(0));
 
     // first move should read old value of $1
     try std.testing.expectEqual(@as(u32, 0), cpu.registers[2]);
