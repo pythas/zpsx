@@ -18,7 +18,7 @@ pub fn main() !void {
     var cpu = Cpu.init(&bus);
     defer cpu.deinit();
 
-    const bios_data = try readBinaryFile(allocator, "data/SCPH1001.BIN");
+    const bios_data = try readBinaryFile(allocator, "roms/SCPH1001.BIN");
     try bus.loadBios(bios_data);
     allocator.free(bios_data);
 

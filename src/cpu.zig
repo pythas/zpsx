@@ -1,9 +1,6 @@
 const std = @import("std");
 const Bus = @import("bus.zig").Bus;
-
-pub inline fn signExtend(value: u16) u32 {
-    return @bitCast(@as(i32, @as(i16, @bitCast(value))));
-}
+const utils = @import("utils.zig");
 
 pub const Instruction = packed union {
     raw: u32,
@@ -38,6 +35,9 @@ pub const Instruction = packed union {
 
 const Exception = enum(u8) {
     syscall = 0x08,
+    overflow = 0x0c,
+    load_address_misaligned = 0x04,
+    store_address_misaligned = 0x05,
 };
 
 pub const Cpu = struct {
@@ -45,11 +45,13 @@ pub const Cpu = struct {
     next_pc: u32,
     current_pc: u32,
 
+    is_branch: bool,
+    is_delay_slot: bool,
+
     registers: [32]u32,
     cp0_registers: [32][8]u32,
     hi: u32,
     lo: u32,
-    // next_instruction: Instruction,
 
     load_delay: struct { reg: u5, value: u32 },
     current_write: struct { reg: u5, value: u32 },
@@ -65,11 +67,12 @@ pub const Cpu = struct {
             .pc = pc,
             .next_pc = pc +% 4,
             .current_pc = pc,
+            .is_branch = false,
+            .is_delay_slot = false,
             .registers = [_]u32{0xdeadfeed} ** 32,
             .cp0_registers = [_][8]u32{[_]u32{0} ** 8} ** 32,
             .hi = 0xdeadfeed,
             .lo = 0xdeadfeed,
-            // .next_instruction = .{ .raw = 0 },
             .load_delay = .{ .reg = 0, .value = 0 },
             .current_write = .{ .reg = 0, .value = 0 },
             .bus = bus,
@@ -109,27 +112,28 @@ pub const Cpu = struct {
     }
 
     pub fn step(self: *Self) void {
-        // const instruction = self.next_instruction;
-        //
-        // self.next_instruction = @bitCast(self.bus.read32(self.pc));
-        // self.pc = self.pc +% 4;
-
         const instruction: Instruction = @bitCast(self.bus.read32(self.pc));
 
         self.current_pc = self.pc;
+
+        if (self.current_pc % 4 != 0) {
+            self.exception(.load_address_misaligned);
+            return;
+        }
+
         self.pc = self.next_pc;
         self.next_pc +%= 4;
 
         const pending_load = self.load_delay;
-
         self.load_delay = .{ .reg = 0, .value = 0 };
         self.current_write = .{ .reg = 0, .value = 0 };
 
+        self.is_delay_slot = self.is_branch;
+        self.is_branch = false;
+
         printInstruction(instruction);
 
-        const opcode = instruction.r.opcode;
-
-        switch (opcode) {
+        switch (instruction.r.opcode) {
             0b000000 => {
                 switch (instruction.r.funct) {
                     0b000000 => self.op_sll(instruction),
@@ -151,6 +155,11 @@ pub const Cpu = struct {
                     0b001100 => self.op_syscall(instruction),
                     0b010011 => self.op_mtlo(instruction),
                     0b010001 => self.op_mthi(instruction),
+                    0b000100 => self.op_sllv(instruction),
+                    0b100111 => self.op_nor(instruction),
+                    0b000111 => self.op_srav(instruction),
+                    0b000110 => self.op_srlv(instruction),
+                    0b011001 => self.op_multu(instruction),
                     else => unreachable,
                 }
             },
@@ -158,6 +167,8 @@ pub const Cpu = struct {
                 switch (instruction.cop0_move.sub) {
                     0b00100 => self.op_mtc0(instruction),
                     0b00000 => self.op_mfc0(instruction),
+                    0b10000 => self.op_rfe(instruction),
+
                     else => unreachable,
                 }
             },
@@ -187,6 +198,8 @@ pub const Cpu = struct {
             },
             0b001010 => self.op_slti(instruction),
             0b001011 => self.op_sltiu(instruction),
+            0b100101 => self.op_lhu(instruction),
+            0b100001 => self.op_lh(instruction),
 
             0b000010 => self.op_j(instruction),
             0b000011 => self.op_jal(instruction),
@@ -208,10 +221,8 @@ pub const Cpu = struct {
     }
 
     fn branch(self: *Self, offset: u32) void {
-        // var pc = self.pc +% (offset << 2);
-        // pc -%= 4; // compensate for branch delay
-
         self.next_pc = self.pc +% (offset << 2);
+        self.is_branch = true;
     }
 
     fn exception(self: *Self, cause: Exception) void {
@@ -220,8 +231,7 @@ pub const Cpu = struct {
         const mode = sr & 0x3f;
 
         // update status reg
-        var new_sr = sr & ~@as(u32, 0x3f);
-        new_sr |= (mode << 2) & 0x3f;
+        const new_sr = sr & ~@as(u32, 0x3f) | (mode << 2) & 0x3f;
         self.setCp0Reg(12, 0, new_sr);
 
         // update cause reg with the exception
@@ -230,6 +240,15 @@ pub const Cpu = struct {
 
         // save current pc in epc
         self.setCp0Reg(14, 0, self.pc);
+
+        if (self.is_delay_slot) {
+            // if the exception happened in a delay slot, we need to adjust the EPC to point to the branch instruction
+            const epc = self.getCp0Reg(14, 0);
+            self.setCp0Reg(14, 0, epc -% 4);
+
+            // and set the BD (Branch Delay) bit in the cause register
+            self.setCp0Reg(13, 0, self.getCp0Reg(13, 0) | 0x8000_0000);
+        }
 
         self.pc = handler;
         self.next_pc = self.pc +% 4;
@@ -249,8 +268,30 @@ pub const Cpu = struct {
 
         const value = self.getCp0Reg(c.rd, c.sel);
 
-        // delayed write
         self.setRegDelayed(c.rt, value);
+    }
+
+    fn op_rfe(self: *Self, _: Instruction) void {
+        const mode = self.getCp0Reg(12, 0) & 0x3f;
+
+        const new_sr = (self.getCp0Reg(12, 0) & ~@as(u32, 0x3f)) | (mode >> 2);
+        self.setCp0Reg(12, 0, new_sr);
+    }
+
+    fn op_srav(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const value = @as(i32, @bitCast(self.getReg(r.rt))) >> @as(u5, @truncate(self.getReg(r.rs)));
+
+        self.setReg(r.rd, @bitCast(value));
+    }
+
+    fn op_srlv(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const value = self.getReg(r.rt) >> @as(u5, @truncate(self.getReg(r.rs)));
+
+        self.setReg(r.rd, value);
     }
 
     // i-type
@@ -278,16 +319,20 @@ pub const Cpu = struct {
 
         const i = instruction.i;
 
-        const address = self.getReg(i.rs) +% signExtend(i.imm);
-        const value = self.getReg(i.rt);
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        if (address % 4 != 0) {
+            self.exception(.store_address_misaligned);
+            return;
+        }
 
+        const value = self.getReg(i.rt);
         self.bus.write32(address, value);
     }
 
     fn op_addiu(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
-        const value = self.getReg(i.rs) +% signExtend(i.imm);
+        const value = self.getReg(i.rs) +% utils.signExtend16(i.imm);
 
         self.setReg(i.rt, value);
     }
@@ -296,7 +341,7 @@ pub const Cpu = struct {
         const i = instruction.i;
 
         if (self.getReg(i.rs) != self.getReg(i.rt)) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -304,12 +349,13 @@ pub const Cpu = struct {
         const i = instruction.i;
 
         const rs_val: i32 = @bitCast(self.getReg(i.rs));
-        const imm_val: i32 = @bitCast(signExtend(i.imm));
+        const imm_val: i32 = @bitCast(utils.signExtend16(i.imm));
 
         const result = @addWithOverflow(rs_val, imm_val);
 
         if (result[1] != 0) {
-            @panic("ADDI overflow"); // TODO: exception
+            self.exception(.overflow);
+            return;
         }
 
         self.setReg(i.rt, @bitCast(result[0]));
@@ -323,10 +369,13 @@ pub const Cpu = struct {
 
         const i = instruction.i;
 
-        const address = self.getReg(i.rs) +% signExtend(i.imm);
-        const value = self.bus.read32(address);
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        if (address % 4 != 0) {
+            self.exception(.load_address_misaligned);
+            return;
+        }
 
-        // delayed write
+        const value = self.bus.read32(address);
         self.setRegDelayed(i.rt, value);
     }
 
@@ -338,9 +387,13 @@ pub const Cpu = struct {
 
         const i = instruction.i;
 
-        const address = self.getReg(i.rs) +% signExtend(i.imm);
-        const value = self.getReg(i.rt);
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        if (address % 2 != 0) {
+            self.exception(.store_address_misaligned);
+            return;
+        }
 
+        const value = self.getReg(i.rt);
         self.bus.write16(address, @truncate(value));
     }
 
@@ -360,7 +413,7 @@ pub const Cpu = struct {
 
         const i = instruction.i;
 
-        const address = self.getReg(i.rs) +% signExtend(i.imm);
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
         const value = self.getReg(i.rt);
 
         self.bus.write8(address, @truncate(value));
@@ -374,10 +427,9 @@ pub const Cpu = struct {
 
         const i = instruction.i;
 
-        const address = self.getReg(i.rs) +% signExtend(i.imm);
-        const value = signExtend(@intCast(self.bus.read8(address)));
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        const value = utils.signExtend16(@intCast(self.bus.read8(address)));
 
-        // delayed write
         self.setRegDelayed(i.rt, value);
     }
 
@@ -385,7 +437,7 @@ pub const Cpu = struct {
         const i = instruction.i;
 
         if (self.getReg(i.rs) == self.getReg(i.rt)) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -395,7 +447,7 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value > 0) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -405,7 +457,7 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value <= 0) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -417,10 +469,9 @@ pub const Cpu = struct {
 
         const i = instruction.i;
 
-        const address = self.getReg(i.rs) +% signExtend(i.imm);
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
         const value = self.bus.read8(address);
 
-        // delayed write
         self.setRegDelayed(i.rt, value);
     }
 
@@ -430,7 +481,7 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value < 0) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -440,7 +491,7 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value >= 0) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -452,7 +503,7 @@ pub const Cpu = struct {
         self.setReg(31, self.next_pc);
 
         if (value < 0) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
@@ -464,14 +515,14 @@ pub const Cpu = struct {
         self.setReg(31, self.next_pc);
 
         if (value >= 0) {
-            self.branch(signExtend(i.imm));
+            self.branch(utils.signExtend16(i.imm));
         }
     }
 
     fn op_slti(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
-        const value: u32 = @intFromBool(@as(i32, @bitCast(self.getReg(i.rs))) < signExtend(i.imm));
+        const value: u32 = @intFromBool(@as(i32, @bitCast(self.getReg(i.rs))) < utils.signExtend16(i.imm));
 
         self.setReg(i.rt, value);
     }
@@ -479,9 +530,35 @@ pub const Cpu = struct {
     fn op_sltiu(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
-        const value: u32 = @intFromBool(self.getReg(i.rs) < signExtend(i.imm));
+        const value: u32 = @intFromBool(self.getReg(i.rs) < utils.signExtend16(i.imm));
 
         self.setReg(i.rt, value);
+    }
+
+    fn op_lhu(self: *Self, instruction: Instruction) void {
+        const i = instruction.i;
+
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        if (address % 2 != 0) {
+            self.exception(.load_address_misaligned);
+            return;
+        }
+
+        const value = self.bus.read16(address);
+        self.setRegDelayed(i.rt, value);
+    }
+
+    fn op_lh(self: *Self, instruction: Instruction) void {
+        const i = instruction.i;
+
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        if (address % 2 != 0) {
+            self.exception(.load_address_misaligned);
+            return;
+        }
+
+        const value = utils.signExtend16(self.bus.read16(address));
+        self.setRegDelayed(i.rt, @bitCast(value));
     }
 
     // r-type
@@ -521,6 +598,7 @@ pub const Cpu = struct {
         const r = instruction.r;
 
         self.next_pc = self.getReg(r.rs);
+        self.is_branch = true;
     }
 
     fn op_and(self: *Self, instruction: Instruction) void {
@@ -540,7 +618,8 @@ pub const Cpu = struct {
         const result = @addWithOverflow(rs_val, rt_val);
 
         if (result[1] != 0) {
-            @panic("ADD overflow"); // TODO: exception
+            self.exception(.overflow);
+            return;
         }
 
         self.setReg(r.rd, @bitCast(result[0]));
@@ -551,6 +630,7 @@ pub const Cpu = struct {
 
         self.setReg(r.rd, self.next_pc);
         self.next_pc = self.getReg(r.rs);
+        self.is_branch = true;
     }
 
     fn op_subu(self: *Self, instruction: Instruction) void {
@@ -656,11 +736,40 @@ pub const Cpu = struct {
         self.hi = self.getReg(r.rs);
     }
 
+    fn op_sllv(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const value = self.getReg(r.rt) << @as(u5, @truncate(self.getReg(r.rs)));
+
+        self.setReg(r.rd, value);
+    }
+
+    fn op_nor(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const value = ~(self.getReg(r.rs) | self.getReg(r.rt));
+
+        self.setReg(r.rd, value);
+    }
+
+    fn op_multu(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const a: u64 = self.getReg(r.rs);
+        const b: u64 = self.getReg(r.rt);
+
+        const value = a * b;
+
+        self.hi = @truncate(value >> 32);
+        self.lo = @truncate(value);
+    }
+
     // j-type
     fn op_j(self: *Self, instruction: Instruction) void {
         const j = instruction.j;
 
         self.next_pc = self.pc & 0xf000_0000 | @as(u32, j.address) << 2;
+        self.is_branch = true;
     }
 
     fn op_jal(self: *Self, instruction: Instruction) void {
@@ -668,6 +777,7 @@ pub const Cpu = struct {
 
         self.setReg(31, self.next_pc);
         self.next_pc = self.pc & 0xf000_0000 | @as(u32, j.address) << 2;
+        self.is_branch = true;
     }
 };
 

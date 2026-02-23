@@ -33,11 +33,11 @@ pub const Ram = struct {
     }
 
     pub fn read16(self: *Self, address: u32) u16 {
-        return std.mem.readInt(u16, self.data[address..][0..4], .little);
+        return std.mem.readInt(u16, self.data[address..][0..2], .little);
     }
 
     pub fn write16(self: *Self, address: u32, value: u16) void {
-        std.mem.writeInt(u16, self.data[address..][0..4], value, .little);
+        std.mem.writeInt(u16, self.data[address..][0..2], value, .little);
     }
 
     pub fn read8(self: *Self, address: u32) u8 {

@@ -6,14 +6,20 @@ const Range = struct {
     start: u32,
     end: u32,
 };
-// 0x1f80_1074
+
 const memory_map = struct {
     pub const ram = Range{ .start = 0x0000_0000, .end = 0x0020_0000 - 1 };
-    pub const irq_control = Range{ .start = 0x1f80_1070, .end = 0x1f80_1078 - 1 };
-    pub const timers = Range{ .start = 0x1f80_1100, .end = 0x1f80_1130 - 1 };
     pub const exp1 = Range{ .start = 0x1f00_0000, .end = 0x1f80_0000 - 1 };
     pub const scratchpad = Range{ .start = 0x1f80_0000, .end = 0x1f80_0400 - 1 };
+
     pub const hardware_io = Range{ .start = 0x1f80_1000, .end = 0x1f80_2000 - 1 };
+    pub const mem_control = Range{ .start = 0x1f80_1000, .end = 0x1f80_1024 - 1 };
+    pub const ram_size = Range{ .start = 0x1f80_1060, .end = 0x1f80_1064 - 1 };
+    pub const irq_control = Range{ .start = 0x1f80_1070, .end = 0x1f80_1078 - 1 };
+    pub const dma = Range{ .start = 0x1f80_1080, .end = 0x1f80_1100 - 1 };
+    pub const timers = Range{ .start = 0x1f80_1100, .end = 0x1f80_1130 - 1 };
+    pub const spu = Range{ .start = 0x1f80_1c00, .end = 0x1f80_1e80 - 1 };
+
     pub const exp2 = Range{ .start = 0x1f80_2000, .end = 0x1f80_4000 - 1 };
     pub const exp3 = Range{ .start = 0x1fa0_0000, .end = 0x1fc0_0000 - 1 };
     pub const bios = Range{ .start = 0x1fc0_0000, .end = 0x1fc8_0000 - 1 };
@@ -27,7 +33,7 @@ pub const Bus = struct {
     bios: Bios,
 
     const Self = @This();
-    const RegionMasks = [_]u32{
+    const region_masks = [_]u32{
         0xffff_ffff, 0xffff_ffff, 0xffff_ffff, 0xffff_ffff, // KUSEG: 2048MB
         0x7fff_ffff, // KSEG0: 512MB
         0x1fff_ffff, // KSEG1: 512MB
@@ -56,7 +62,7 @@ pub const Bus = struct {
     fn physicalAddress(virtual_address: u32) u32 {
         const index = virtual_address >> 29;
 
-        return virtual_address & RegionMasks[index];
+        return virtual_address & region_masks[index];
     }
 
     pub fn read32(self: *Self, virtual_address: u32) u32 {
@@ -69,6 +75,10 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read32(address),
+            memory_map.dma.start...memory_map.dma.end => {
+                std.debug.print("bus: Unhandled read32 from DMA\n", .{});
+                return 0;
+            },
             memory_map.irq_control.start...memory_map.irq_control.end => 0x00,
             memory_map.bios.start...memory_map.bios.end => self.bios.read32(address - memory_map.bios.start),
             else => std.debug.panic("bus: Unsupported read32: {x}", .{address}),
@@ -88,11 +98,30 @@ pub const Bus = struct {
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write32(address, value),
             memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write32 to IRQ_CONTROL\n", .{}),
-            0x1f80_1000...0x1f80_1024 => std.debug.print("bus: Unhandled write32 to MEMCONTROL\n", .{}),
-            0x1f80_1060...0x1f80_1064 => std.debug.print("bus: Unhandled write32 to RAM_SIZE\n", .{}),
+            memory_map.dma.start...memory_map.dma.end => std.debug.print("bus: Unhandled write32 to DMA\n", .{}),
+            memory_map.mem_control.start...memory_map.mem_control.end => std.debug.print("bus: Unhandled write32 to MEMCONTROL\n", .{}),
+            memory_map.ram_size.start...memory_map.ram_size.end => std.debug.print("bus: Unhandled write32 to RAM_SIZE\n", .{}),
             memory_map.cache_control.start...memory_map.cache_control.end => std.debug.print("bus: Unhandled write32 to CACHE_CONTROL\n", .{}),
             else => std.debug.panic("bus: Unsupported write32: {x}", .{address}),
         }
+    }
+
+    pub fn read16(self: *Self, virtual_address: u32) u16 {
+        const address = physicalAddress(virtual_address);
+
+        // std.debug.print(
+        //     "read16: V:0x{x:0>8} P:0x{x:0>8}\n",
+        //     .{ virtual_address, address },
+        // );
+
+        return switch (address) {
+            memory_map.ram.start...memory_map.ram.end => self.ram.read16(address),
+            memory_map.spu.start...memory_map.spu.end => {
+                std.debug.print("bus: Unhandled read16 from SPU\n", .{});
+                return 0;
+            },
+            else => std.debug.panic("bus: Unsupported read16: {x}", .{address}),
+        };
     }
 
     pub fn write16(self: *Self, virtual_address: u32, value: u16) void {
@@ -100,22 +129,20 @@ pub const Bus = struct {
 
         const address = physicalAddress(virtual_address);
 
-        _ = self;
-        _ = value;
-
         // std.debug.print(
         //     "write16: V:0x{x:0>8} P:0x{x:0>8} VAL:0x{x:0>8}\n",
         //     .{ virtual_address, address, value },
         // );
 
         switch (address) {
+            memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
             memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write16 to TIMERS\n", .{}),
-            0x1f80_1c00...0x1f80_1e7f => std.debug.print("bus: Unhandled write16 to SPU\n", .{}),
+            memory_map.spu.start...memory_map.spu.end => std.debug.print("bus: Unhandled write16 to SPU\n", .{}),
             else => std.debug.panic("bus: Unsupported write16: {x}", .{address}),
         }
     }
 
-    pub fn read8(self: *Self, virtual_address: u32) u32 {
+    pub fn read8(self: *Self, virtual_address: u32) u8 {
         const address = physicalAddress(virtual_address);
 
         // std.debug.print(
