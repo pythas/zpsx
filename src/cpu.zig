@@ -1,3 +1,13 @@
+// for mutl/multu:
+// pending_hi: u32,
+// pending_lo: u32,
+// mul_delay: u32,
+//
+// todo:
+// LWCn
+// SWCn
+// illegal instruction exception (0x0a)
+
 const std = @import("std");
 const Bus = @import("bus.zig").Bus;
 const utils = @import("utils.zig");
@@ -35,9 +45,11 @@ pub const Instruction = packed union {
 
 const Exception = enum(u8) {
     syscall = 0x08,
+    brk = 0x09,
     overflow = 0x0c,
     load_address_misaligned = 0x04,
     store_address_misaligned = 0x05,
+    cop = 0x0b,
 };
 
 pub const Cpu = struct {
@@ -131,7 +143,7 @@ pub const Cpu = struct {
         self.is_delay_slot = self.is_branch;
         self.is_branch = false;
 
-        printInstruction(instruction);
+        // printInstruction(instruction);
 
         switch (instruction.r.opcode) {
             0b000000 => {
@@ -160,6 +172,10 @@ pub const Cpu = struct {
                     0b000111 => self.op_srav(instruction),
                     0b000110 => self.op_srlv(instruction),
                     0b011001 => self.op_multu(instruction),
+                    0b100110 => self.op_xor(instruction),
+                    0b001101 => self.op_break(instruction),
+                    0b011000 => self.op_mult(instruction),
+                    0b100010 => self.op_sub(instruction),
                     else => unreachable,
                 }
             },
@@ -171,6 +187,16 @@ pub const Cpu = struct {
 
                     else => unreachable,
                 }
+            },
+            0b010001 => {
+                self.exception(.cop);
+            },
+
+            0b010011 => {
+                self.exception(.cop);
+            },
+            0b010010 => {
+                std.debug.panic("Unhandled instruction cop2", .{});
             },
             0b001111 => self.op_lui(instruction),
             0b001101 => self.op_ori(instruction),
@@ -200,6 +226,11 @@ pub const Cpu = struct {
             0b001011 => self.op_sltiu(instruction),
             0b100101 => self.op_lhu(instruction),
             0b100001 => self.op_lh(instruction),
+            0b001110 => self.op_xori(instruction),
+            0b100010 => self.op_lwl(instruction),
+            0b100110 => self.op_lwr(instruction),
+            0b101010 => self.op_swl(instruction),
+            0b101110 => self.op_swr(instruction),
 
             0b000010 => self.op_j(instruction),
             0b000011 => self.op_jal(instruction),
@@ -313,7 +344,7 @@ pub const Cpu = struct {
 
     fn op_sw(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
-            std.debug.print("Ignoring store while cache is isolated\n", .{});
+            // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
         }
 
@@ -363,7 +394,7 @@ pub const Cpu = struct {
 
     fn op_lw(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
-            std.debug.print("Ignoring load while cache is isolated\n", .{});
+            // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
         }
 
@@ -381,7 +412,7 @@ pub const Cpu = struct {
 
     fn op_sh(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
-            std.debug.print("Ignoring store while cache is isolated\n", .{});
+            // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
         }
 
@@ -407,7 +438,7 @@ pub const Cpu = struct {
 
     fn op_sb(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
-            std.debug.print("Ignoring store while cache is isolated\n", .{});
+            // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
         }
 
@@ -421,7 +452,7 @@ pub const Cpu = struct {
 
     fn op_lb(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
-            std.debug.print("Ignoring load while cache is isolated\n", .{});
+            // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
         }
 
@@ -463,7 +494,7 @@ pub const Cpu = struct {
 
     fn op_lbu(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
-            std.debug.print("Ignoring load while cache is isolated\n", .{});
+            // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
         }
 
@@ -559,6 +590,123 @@ pub const Cpu = struct {
 
         const value = utils.signExtend16(self.bus.read16(address));
         self.setRegDelayed(i.rt, @bitCast(value));
+    }
+
+    fn op_xori(self: *Self, instruction: Instruction) void {
+        const i = instruction.i;
+
+        const value: u32 = self.getReg(i.rs) ^ i.imm;
+
+        self.setReg(i.rt, value);
+    }
+
+    fn op_lwl(self: *Self, instruction: Instruction) void {
+        if (self.isCacheIsolated()) {
+            // std.debug.print("Ignoring load while cache is isolated\n", .{});
+            return;
+        }
+
+        const i = instruction.i;
+
+        // calc unaligned address and the aligned base address
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        const aligned_address = address & ~@as(u32, 3);
+        const aligned_word = self.bus.read32(aligned_address);
+
+        // bypass load delay restriction
+        var current_value = self.getReg(i.rt);
+        if (self.load_delay.reg == i.rt) {
+            current_value = self.load_delay.value;
+        }
+
+        // shift and merge based on byte offset
+        const result: u32 = switch (address & 3) {
+            0 => (current_value & 0x00ff_ffff) | (aligned_word << 24),
+            1 => (current_value & 0x0000_ffff) | (aligned_word << 16),
+            2 => (current_value & 0x0000_00ff) | (aligned_word << 8),
+            3 => aligned_word,
+            else => unreachable,
+        };
+
+        self.setRegDelayed(i.rt, result);
+    }
+
+    fn op_lwr(self: *Self, instruction: Instruction) void {
+        if (self.isCacheIsolated()) {
+            // std.debug.print("Ignoring load while cache is isolated\n", .{});
+            return;
+        }
+
+        const i = instruction.i;
+
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        const aligned_address = address & ~@as(u32, 3);
+        const aligned_word = self.bus.read32(aligned_address);
+
+        var current_value = self.getReg(i.rt);
+        if (self.load_delay.reg == i.rt) {
+            current_value = self.load_delay.value;
+        }
+
+        const result: u32 = switch (address & 3) {
+            0 => aligned_word,
+            1 => (current_value & 0xff00_0000) | (aligned_word >> 8),
+            2 => (current_value & 0xffff_0000) | (aligned_word >> 16),
+            3 => (current_value & 0xffff_ff00) | (aligned_word >> 24),
+            else => unreachable,
+        };
+
+        self.setRegDelayed(i.rt, result);
+    }
+
+    fn op_swl(self: *Self, instruction: Instruction) void {
+        if (self.isCacheIsolated()) {
+            // std.debug.print("Ignoring store while cache is isolated\n", .{});
+            return;
+        }
+
+        const i = instruction.i;
+
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        const aligned_address = address & ~@as(u32, 3);
+        const aligned_word = self.bus.read32(aligned_address);
+
+        const reg_value = self.getReg(i.rt);
+
+        const result: u32 = switch (address & 3) {
+            0 => (aligned_word & 0xffff_ff00) | (reg_value >> 24),
+            1 => (aligned_word & 0xffff_0000) | (reg_value >> 16),
+            2 => (aligned_word & 0xff00_0000) | (reg_value >> 8),
+            3 => reg_value,
+            else => unreachable,
+        };
+
+        self.bus.write32(aligned_address, result);
+    }
+
+    fn op_swr(self: *Self, instruction: Instruction) void {
+        if (self.isCacheIsolated()) {
+            std.debug.print("Ignoring store while cache is isolated\n", .{});
+            return;
+        }
+
+        const i = instruction.i;
+
+        const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
+        const aligned_address = address & ~@as(u32, 3);
+        const aligned_word = self.bus.read32(aligned_address);
+
+        const reg_value = self.getReg(i.rt);
+
+        const result: u32 = switch (address & 3) {
+            0 => reg_value,
+            1 => (aligned_word & 0x0000_00ff) | (reg_value << 8),
+            2 => (aligned_word & 0x0000_ffff) | (reg_value << 16),
+            3 => (aligned_word & 0x00ff_ffff) | (reg_value << 24),
+            else => unreachable,
+        };
+
+        self.bus.write32(aligned_address, result);
     }
 
     // r-type
@@ -762,6 +910,46 @@ pub const Cpu = struct {
 
         self.hi = @truncate(value >> 32);
         self.lo = @truncate(value);
+    }
+
+    fn op_xor(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const value = self.getReg(r.rs) ^ self.getReg(r.rt);
+
+        self.setReg(r.rd, value);
+    }
+
+    fn op_break(self: *Self, _: Instruction) void {
+        self.exception(.brk);
+    }
+
+    fn op_mult(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const a: i64 = @as(i32, @bitCast(self.getReg(r.rs)));
+        const b: i64 = @as(i32, @bitCast(self.getReg(r.rt)));
+
+        const value: u64 = @bitCast(a * b);
+
+        self.hi = @truncate(value >> 32);
+        self.lo = @truncate(value);
+    }
+
+    fn op_sub(self: *Self, instruction: Instruction) void {
+        const r = instruction.r;
+
+        const rs_val: i32 = @bitCast(self.getReg(r.rs));
+        const rt_val: i32 = @bitCast(self.getReg(r.rt));
+
+        const result = @subWithOverflow(rs_val, rt_val);
+
+        if (result[1] != 0) {
+            self.exception(.overflow);
+            return;
+        }
+
+        self.setReg(r.rd, @bitCast(result[0]));
     }
 
     // j-type

@@ -1,13 +1,15 @@
 const std = @import("std");
-const Bios = @import("bios.zig").Bios;
 const Ram = @import("ram.zig").Ram;
+const Dma = @import("dma.zig").Dma;
+const Gpu = @import("gpu.zig").Gpu;
+const Bios = @import("bios.zig").Bios;
 
 const Range = struct {
     start: u32,
     end: u32,
 };
 
-const memory_map = struct {
+pub const memory_map = struct {
     pub const ram = Range{ .start = 0x0000_0000, .end = 0x0020_0000 - 1 };
     pub const exp1 = Range{ .start = 0x1f00_0000, .end = 0x1f80_0000 - 1 };
     pub const scratchpad = Range{ .start = 0x1f80_0000, .end = 0x1f80_0400 - 1 };
@@ -31,6 +33,8 @@ pub const Bus = struct {
     allocator: std.mem.Allocator,
 
     ram: Ram,
+    dma: Dma,
+    gpu: Gpu,
     bios: Bios,
 
     const Self = @This();
@@ -42,12 +46,16 @@ pub const Bus = struct {
     };
 
     pub fn init(allocator: std.mem.Allocator) !Self {
-        const bios = try Bios.init(allocator);
         const ram = try Ram.init(allocator);
+        const dma = Dma.init();
+        const gpu = Gpu.init();
+        const bios = try Bios.init(allocator);
 
         return .{
             .allocator = allocator,
             .ram = ram,
+            .dma = dma,
+            .gpu = gpu,
             .bios = bios,
         };
     }
@@ -76,16 +84,15 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read32(address),
-            memory_map.dma.start...memory_map.dma.end => {
-                std.debug.print("bus: Unhandled read32 from DMA\n", .{});
-                return 0;
-            },
             memory_map.irq_control.start...memory_map.irq_control.end => 0x00,
-            memory_map.bios.start...memory_map.bios.end => self.bios.read32(address - memory_map.bios.start),
+            memory_map.dma.start...memory_map.dma.end => self.dma.read32(address - memory_map.dma.start),
+
             memory_map.gpu.start...memory_map.gpu.end => {
-                std.debug.print("bus: Unhandled read32 from GPU\n", .{});
-                return 0;
+                return self.gpu.read32(address - memory_map.gpu.start);
+                // std.debug.print("bus: Unhandled read32 from GPU\n", .{});
+                // return 0;
             },
+            memory_map.bios.start...memory_map.bios.end => self.bios.read32(address - memory_map.bios.start),
             else => std.debug.panic("bus: Unsupported read32: {x}", .{address}),
         };
     }
@@ -103,7 +110,9 @@ pub const Bus = struct {
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write32(address, value),
             memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write32 to IRQ_CONTROL\n", .{}),
-            memory_map.dma.start...memory_map.dma.end => std.debug.print("bus: Unhandled write32 to DMA\n", .{}),
+            memory_map.dma.start...memory_map.dma.end => self.dma.write32(address - memory_map.dma.start, value),
+            memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write32 to TIMERS\n", .{}),
+            memory_map.gpu.start...memory_map.gpu.end => std.debug.print("bus: Unhandled write32 to GPU\n", .{}),
             memory_map.mem_control.start...memory_map.mem_control.end => std.debug.print("bus: Unhandled write32 to MEMCONTROL\n", .{}),
             memory_map.ram_size.start...memory_map.ram_size.end => std.debug.print("bus: Unhandled write32 to RAM_SIZE\n", .{}),
             memory_map.cache_control.start...memory_map.cache_control.end => std.debug.print("bus: Unhandled write32 to CACHE_CONTROL\n", .{}),
@@ -121,6 +130,10 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read16(address),
+            memory_map.irq_control.start...memory_map.irq_control.end => {
+                std.debug.print("bus: Unhandled read16 from IRQ_CONTROL\n", .{});
+                return 0;
+            },
             memory_map.spu.start...memory_map.spu.end => {
                 std.debug.print("bus: Unhandled read16 from SPU\n", .{});
                 return 0;
@@ -141,6 +154,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
+            memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write16 to IRQ_CONTROL\n", .{}),
             memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write16 to TIMERS\n", .{}),
             memory_map.spu.start...memory_map.spu.end => std.debug.print("bus: Unhandled write16 to SPU\n", .{}),
             else => std.debug.panic("bus: Unsupported write16: {x}", .{address}),

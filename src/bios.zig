@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Size = 512 * 1024;
+const size = 512 * 1024;
 
 pub const Bios = struct {
     allocator: std.mem.Allocator,
@@ -10,7 +10,7 @@ pub const Bios = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) !Self {
-        const data = try allocator.alloc(u8, Size);
+        const data = try allocator.alloc(u8, size);
 
         @memset(data, 0);
 
@@ -25,7 +25,7 @@ pub const Bios = struct {
     }
 
     pub fn load(self: *Self, data: []const u8) !void {
-        if (data.len != Size) {
+        if (data.len != size) {
             return error.InvalidBiosSize;
         }
 

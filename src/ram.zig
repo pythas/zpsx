@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const Size = 2 * 1024 * 1024;
+const size = 2 * 1024 * 1024;
 
 pub const Ram = struct {
     allocator: std.mem.Allocator,
@@ -10,7 +10,7 @@ pub const Ram = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) !Self {
-        const data = try allocator.alloc(u8, Size);
+        const data = try allocator.alloc(u8, size);
 
         @memset(data, 0);
 
