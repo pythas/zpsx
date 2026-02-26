@@ -117,10 +117,25 @@ pub const Dma = struct {
 
     pub fn read32(self: *Self, address: u32) u32 {
         return switch (address) {
+            0x00...0x6c => {
+                const channel_index = address / 0x10;
+                const register_offset = address % 0x10;
+                const channel = &self.channels[channel_index];
+
+                return switch (register_offset) {
+                    0x0 => channel.madr,
+                    0x4 => channel.bcr,
+                    0x8 => @bitCast(channel.chcr),
+                    else => {
+                        std.debug.print("bus: Unhandled read from DMA channel gap: {x}\n", .{address + bus.memory_map.dma.start});
+                        return 0;
+                    },
+                };
+            },
             0x70 => @bitCast(self.dpcr),
             0x74 => @bitCast(self.dicr),
             else => {
-                std.debug.print("bus: Unhandled read32 from DMA: {x}\n", .{address});
+                std.debug.print("bus: Unhandled read32 from DMA: {x}\n", .{address + bus.memory_map.dma.start});
                 return 0;
             },
         };
@@ -128,6 +143,26 @@ pub const Dma = struct {
 
     pub fn write32(self: *Self, address: u32, value: u32) void {
         switch (address) {
+            0x00...0x6f => {
+                const channel_index = address / 0x10;
+                const register_offset = address % 0x10;
+                const channel = &self.channels[channel_index];
+
+                switch (register_offset) {
+                    0x0 => channel.madr = value & 0x00ff_ffff,
+                    0x4 => channel.bcr = value,
+                    0x8 => {
+                        channel.chcr = @bitCast(value);
+
+                        // if (channel.chcr.start_transfer) {
+                        //     self.do_transfer(channel_index);
+                        // }
+                    },
+                    else => {
+                        std.debug.print("bus: Unhandled write to DMA channel gap: {x} - {x}\n", .{ address + bus.memory_map.dma.start, value });
+                    },
+                }
+            },
             0x70 => self.dpcr = @bitCast(value),
             0x74 => self.dicr.write(value),
             else => std.debug.print("bus: Unhandled write32 to DMA: {x} - {x}\n", .{ address + bus.memory_map.dma.start, value }),
