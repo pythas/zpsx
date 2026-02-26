@@ -5,6 +5,16 @@ const DmaChannel = struct {
     madr: u32,
     bcr: u32,
     chcr: DmaChannelControlRegister,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{
+            .madr = 0,
+            .bcr = 0,
+            .chcr = @bitCast(@as(u32, 0)),
+        };
+    }
 };
 
 pub const DmaChannelControlRegister = packed struct(u32) {
@@ -87,6 +97,7 @@ const DmaInterruptRegister = packed struct(u32) {
 };
 
 pub const Dma = struct {
+    channels: [7]DmaChannel,
     dpcr: DmaControlRegister,
     dicr: DmaInterruptRegister,
 
@@ -94,6 +105,7 @@ pub const Dma = struct {
 
     pub fn init() Self {
         return .{
+            .channels = [_]DmaChannel{DmaChannel.init()} ** 7,
             .dpcr = @bitCast(@as(u32, 0x07654321)),
             .dicr = @bitCast(@as(u32, 0)),
         };
