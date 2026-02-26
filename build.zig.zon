@@ -1,7 +1,7 @@
 .{
-    .name = .zb,
+    .name = .zpsx,
     .version = "0.0.0",
-    .fingerprint = 0x37b583f7643a94c8,
+    .fingerprint = 0x2bfb248ff7c62103,
     .minimum_zig_version = "0.14.1",
     .dependencies = .{
         .sokol = .{

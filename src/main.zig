@@ -1,30 +1,139 @@
 const std = @import("std");
+const utils = @import("utils.zig");
+
+const ig = @import("cimgui_docking");
+const sokol = @import("sokol");
+const slog = sokol.log;
+const sg = sokol.gfx;
+const sapp = sokol.app;
+const sglue = sokol.glue;
+const simgui = sokol.imgui;
+
+const Emulator = @import("emulator.zig").Emulator;
 const Cpu = @import("cpu.zig").Cpu;
 const Bus = @import("bus.zig").Bus;
 
-fn readBinaryFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
-    var dir = std.fs.cwd();
-    const file = try dir.openFile(path, .{ .mode = .read_only });
-    defer file.close();
-    return try file.readToEndAlloc(allocator, 1024 * 1024);
+const RegisterWindow = @import("ui/register.zig").RegisterWindow;
+const DisassemblyWindow = @import("ui/disassembly.zig").DisassemblyWindow;
+const UiState = @import("ui/state.zig").UiState;
+
+const AppState = struct {
+    allocator: std.mem.Allocator,
+
+    emulator: *Emulator,
+
+    ui: UiState,
+    register_window: RegisterWindow,
+    disassembly_window: DisassemblyWindow,
+
+    pass_action: sg.PassAction,
+
+    const Self = @This();
+
+    fn init(allocator: std.mem.Allocator) !*Self {
+        const self = try allocator.create(AppState);
+
+        self.* = .{
+            .allocator = allocator,
+            .emulator = try Emulator.init(allocator),
+            .ui = UiState.init(),
+            .pass_action = .{},
+            .register_window = RegisterWindow.init(),
+            .disassembly_window = DisassemblyWindow.init(),
+        };
+
+        return self;
+    }
+
+    fn reset(self: *AppState) !void {
+        _ = self;
+        // self.bus.reset();
+        // self.cpu.reset();
+    }
+};
+
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var state: *AppState = undefined;
+
+export fn init() void {
+    sg.setup(.{
+        .environment = sglue.environment(),
+        .logger = .{ .func = slog.func },
+    });
+
+    simgui.setup(.{
+        .logger = .{ .func = slog.func },
+    });
+
+    state = AppState.init(gpa.allocator()) catch |err| {
+        std.debug.panic("Failed to init emulator: {}", .{err});
+    };
+
+    state.pass_action = .{};
+    state.pass_action.colors[0] = .{
+        .load_action = .CLEAR,
+        .clear_value = .{ .r = 0.2, .g = 0.2, .b = 0.25, .a = 1.0 },
+    };
 }
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+export fn frame() void {
+    const width = sapp.widthf();
+    const height = sapp.heightf();
 
-    var bus = try Bus.init(allocator);
-    defer bus.deinit();
-    var cpu = Cpu.init(&bus);
-    defer cpu.deinit();
+    state.emulator.runFrame();
 
-    const bios_data = try readBinaryFile(allocator, "roms/SCPH1001.BIN");
-    try bus.loadBios(bios_data);
-    allocator.free(bios_data);
+    simgui.newFrame(.{
+        .width = @intFromFloat(width),
+        .height = @intFromFloat(height),
+        .delta_time = sapp.frameDuration(),
+        .dpi_scale = sapp.dpiScale(),
+    });
 
-    while (true) {
-        cpu.step();
+    if (ig.igBeginMainMenuBar()) {
+        if (ig.igBeginMenu("View")) {
+            _ = ig.igMenuItemBoolPtr("Registers", "", &state.ui.registers.visible, true);
+            _ = ig.igMenuItemBoolPtr("Disassembly", "", &state.ui.disassembly.visible, true);
+            ig.igEndMenu();
+        }
+        ig.igEndMainMenuBar();
     }
+
+    state.register_window.draw(&state.ui.registers, state.emulator);
+    state.disassembly_window.draw(&state.ui.disassembly, state.emulator);
+
+    sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
+    simgui.render();
+    sg.endPass();
+    sg.commit();
+}
+
+export fn event(ev: [*c]const sapp.Event) void {
+    _ = simgui.handleEvent(ev.*);
+}
+
+export fn cleanup() void {
+    const allocator = state.allocator;
+    state.emulator.deinit(allocator);
+    allocator.destroy(state);
+
+    simgui.shutdown();
+    sg.shutdown();
+
+    _ = gpa.deinit();
+}
+
+pub fn main() void {
+    sapp.run(.{
+        .init_cb = init,
+        .frame_cb = frame,
+        .cleanup_cb = cleanup,
+        .event_cb = event,
+        .window_title = "zpsx",
+        .width = 1000,
+        .height = 600,
+        .icon = .{ .sokol_default = true },
+        .logger = .{ .func = slog.func },
+    });
 }
 
 test "CPU: delay slot lw overwritten by addiu" {
@@ -36,7 +145,7 @@ test "CPU: delay slot lw overwritten by addiu" {
     var cpu = Cpu.init(&bus);
     defer cpu.deinit();
 
-    const bios_data = try readBinaryFile(allocator, "tests/delay_overwrite.bin");
+    const bios_data = try utils.readBinaryFile(allocator, "tests/delay_overwrite.bin");
     try bus.loadBios(bios_data);
     allocator.free(bios_data);
 
@@ -61,7 +170,7 @@ test "CPU: load delay slot read visibility" {
     var cpu = Cpu.init(&bus);
     defer cpu.deinit();
 
-    const bios_data = try readBinaryFile(allocator, "tests/delay_read.bin");
+    const bios_data = try utils.readBinaryFile(allocator, "tests/delay_read.bin");
     try bus.loadBios(bios_data);
     allocator.free(bios_data);
 

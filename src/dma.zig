@@ -1,7 +1,7 @@
 const std = @import("std");
 const bus = @import("bus.zig");
 
-const DmaChannel = struct {
+pub const DmaChannel = struct {
     madr: u32,
     bcr: u32,
     chcr: DmaChannelControlRegister,
@@ -36,7 +36,7 @@ pub const DmaChannelControlRegister = packed struct(u32) {
     _unused_5: u1 = 0,
 };
 
-const DmaControlRegister = packed struct(u32) {
+pub const DmaControlRegister = packed struct(u32) {
     dma0_mdecin_priority: u3,
     dma0_mdecin_enable: bool,
     dma1_mdecout_priority: u3,
@@ -55,7 +55,7 @@ const DmaControlRegister = packed struct(u32) {
     cpu_memory_access_enable: bool,
 };
 
-const DmaInterruptRegister = packed struct(u32) {
+pub const DmaInterruptRegister = packed struct(u32) {
     channel_interrupt_mode: u7,
     _unused: u8 = 0,
     force_irq: bool,

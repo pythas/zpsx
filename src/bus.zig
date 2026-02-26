@@ -61,6 +61,7 @@ pub const Bus = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.ram.deinit();
         self.bios.deinit();
     }
 
