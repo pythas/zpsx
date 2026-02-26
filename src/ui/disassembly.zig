@@ -38,6 +38,16 @@ pub const DisassemblyWindow = struct {
                 emulator.step();
             }
 
+            ig.igSameLine();
+            if (ig.igButton("Step over")) {
+                emulator.stepOver();
+            }
+
+            ig.igSameLine();
+            if (ig.igButton("Step out")) {
+                emulator.stepOut();
+            }
+
             const start_pc = if (cpu.pc >= 40) cpu.pc - 40 else 0;
             var buf: [128]u8 = undefined;
 
