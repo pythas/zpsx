@@ -15,7 +15,10 @@ pub const Emulator = struct {
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator) !*Self {
+    pub fn init(
+        allocator: std.mem.Allocator,
+        breakpoints: []const u32,
+    ) !*Self {
         const self = try allocator.create(Self);
 
         self.bus = try Bus.init(allocator);
@@ -24,7 +27,9 @@ pub const Emulator = struct {
         self.breakpoints = .init(allocator);
         self.temp_breakpoint = null;
 
-        try self.breakpoints.put(0xbfc0_0034, {});
+        for (breakpoints) |breakpoint| {
+            try self.breakpoints.put(breakpoint, {});
+        }
 
         const bios_data = try utils.readBinaryFile(allocator, "roms/SCPH1001.BIN");
         defer allocator.free(bios_data);

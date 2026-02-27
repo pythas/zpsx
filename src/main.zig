@@ -30,12 +30,12 @@ const AppState = struct {
 
     const Self = @This();
 
-    fn init(allocator: std.mem.Allocator) !*Self {
+    fn init(allocator: std.mem.Allocator, breakpoints: []const u32) !*Self {
         const self = try allocator.create(AppState);
 
         self.* = .{
             .allocator = allocator,
-            .emulator = try Emulator.init(allocator),
+            .emulator = try Emulator.init(allocator, breakpoints),
             .ui = UiState.init(),
             .pass_action = .{},
             .register_window = RegisterWindow.init(),
@@ -65,7 +65,33 @@ export fn init() void {
         .logger = .{ .func = slog.func },
     });
 
-    state = AppState.init(gpa.allocator()) catch |err| {
+    const allocator = gpa.allocator();
+
+    var args = std.process.argsWithAllocator(allocator) catch |err| {
+        std.debug.panic("Failed to init args: {}", .{err});
+    };
+    defer args.deinit();
+
+    _ = args.next();
+
+    var breakpoints: std.ArrayList(u32) = .empty;
+    defer breakpoints.deinit(allocator);
+
+    while (args.next()) |arg| {
+        if (std.mem.eql(u8, arg, "-b") or std.mem.eql(u8, arg, "--breakpoint")) {
+            if (args.next()) |val| {
+                const bp = std.fmt.parseInt(u32, val, 0) catch |err| {
+                    std.debug.print("Failed to parse breakpoint '{s}': {}\n", .{ val, err });
+                    continue;
+                };
+                breakpoints.append(allocator, bp) catch |err| {
+                    std.debug.panic("Failed to append breakpoint: {}", .{err});
+                };
+            }
+        }
+    }
+
+    state = AppState.init(gpa.allocator(), breakpoints.items) catch |err| {
         std.debug.panic("Failed to init emulator: {}", .{err});
     };
 
