@@ -36,7 +36,24 @@ pub const DmaDirection = enum(u2) {
     vram_to_cpu = 3,
 };
 
+pub const ImageDestination = packed struct(u32) {
+    x: u16,
+    y: u16,
+};
+
+pub const ImageDimensions = packed struct(u32) {
+    width: u16,
+    height: u16,
+};
+
 // GP0
+pub const Gp0Mode = enum {
+    command,
+    cpu_to_vram,
+    vram_to_cpu,
+    // polyline
+};
+
 pub const PolygonOpcode = packed struct(u8) {
     raw_texture: bool,
     semi_transparent: bool,
@@ -60,6 +77,11 @@ const GP0_LENGTHS = init_lengths: {
 
         lengths[opcode] = len;
     }
+
+    // vram transfers
+    lengths[0x80] = 4;
+    lengths[0xA0] = 3;
+    lengths[0xC0] = 3;
 
     break :init_lengths lengths;
 };
@@ -119,6 +141,12 @@ pub const MaskBitSettingCommand = packed struct(u32) {
 pub const DmaDirectionCommand = packed struct(u32) {
     dma_direction: DmaDirection,
     _unused: u22 = 0,
+    opcode: u8,
+};
+
+pub const DisplayEnableCommand = packed struct(u32) {
+    display_disabled: bool,
+    _unused: u23 = 0,
     opcode: u8,
 };
 
@@ -232,6 +260,9 @@ pub const Gpu = struct {
     display_line_start: u16,
     display_line_end: u16,
 
+    gp0_mode: Gp0Mode,
+    gp0_words_remaining: u32,
+
     gp0_buffer: [16]u32,
     gp0_buffer_len: usize,
     gp0_expected_len: usize,
@@ -240,7 +271,7 @@ pub const Gpu = struct {
 
     pub fn init() Self {
         return .{
-            .gpustat = @bitCast(@as(u32, 0x14802000)),
+            .gpustat = @bitCast(@as(u32, 0x1c802000)),
 
             .texture_rect_x_flip = false,
             .texture_rect_y_flip = false,
@@ -266,6 +297,9 @@ pub const Gpu = struct {
             .display_line_start = 0x10,
             .display_line_end = 0x100,
 
+            .gp0_mode = .command,
+            .gp0_words_remaining = 0,
+
             .gp0_buffer = [_]u32{0} ** 16,
             .gp0_buffer_len = 0,
             .gp0_expected_len = 0,
@@ -278,7 +312,13 @@ pub const Gpu = struct {
 
     pub fn read32(self: *Self, address: u32) u32 {
         return switch (address) {
-            0x04 => @bitCast(self.gpustat),
+            0x00 => self.gp0_read(),
+            0x04 => {
+                // HACK: force vertical resolution to 240
+                var fake_stat = self.gpustat;
+                fake_stat.vertical_resolution = ._240;
+                return @bitCast(fake_stat);
+            },
             else => {
                 std.debug.print("bus: Unhandled read32 from GPU\n", .{});
                 return 0;
@@ -294,6 +334,9 @@ pub const Gpu = struct {
 
                 switch (opcode) {
                     0x00 => self.gp1_reset(),
+                    0x01 => self.gp1_reset_command_buffer(),
+                    0x02 => self.gp1_acknowledge_irq(),
+                    0x03 => self.gp1_display_enable(value),
                     0x04 => self.gp1_dma_direction(value),
                     0x05 => self.gp1_display_vram_start(value),
                     0x06 => self.gp1_display_horizontal_range(value),
@@ -308,18 +351,49 @@ pub const Gpu = struct {
 
     // GP0
     pub fn gp0_write(self: *Self, value: u32) void {
-        if (self.gp0_buffer_len == 0) {
-            const opcode: u8 = @truncate(value >> 24);
-            self.gp0_expected_len = GP0_LENGTHS[opcode];
+        switch (self.gp0_mode) {
+            .command => {
+                if (self.gp0_buffer_len == 0) {
+                    const opcode: u8 = @truncate(value >> 24);
+                    self.gp0_expected_len = GP0_LENGTHS[opcode];
+                }
+
+                self.gp0_buffer[self.gp0_buffer_len] = value;
+                self.gp0_buffer_len += 1;
+
+                if (self.gp0_buffer_len == self.gp0_expected_len) {
+                    self.gp0_execute_command();
+                    self.gp0_buffer_len = 0;
+                }
+            },
+            .cpu_to_vram => {
+                // TODO:
+                // self.send_word_to_vram(value);
+                self.gp0_words_remaining -= 1;
+
+                if (self.gp0_words_remaining == 0) {
+                    self.gp0_mode = .command;
+                }
+            },
+            else => unreachable,
+        }
+    }
+
+    pub fn gp0_read(self: *Self) u32 {
+        if (self.gp0_mode == .vram_to_cpu) {
+            const data: u32 = 0;
+
+            self.gp0_words_remaining -= 1;
+
+            if (self.gp0_words_remaining == 0) {
+                self.gp0_mode = .command;
+                self.gpustat.ready_send_vram_to_cpu = false;
+            }
+
+            return data;
         }
 
-        self.gp0_buffer[self.gp0_buffer_len] = value;
-        self.gp0_buffer_len += 1;
-
-        if (self.gp0_buffer_len == self.gp0_expected_len) {
-            self.gp0_execute_command();
-            self.gp0_buffer_len = 0;
-        }
+        return 0;
     }
 
     fn gp0_execute_command(self: *Self) void {
@@ -328,22 +402,154 @@ pub const Gpu = struct {
 
         switch (opcode) {
             0x00 => {},
+            0x01 => self.gp0_reset_command_buffer(),
+            0x28 => self.gp0_flat_quad(
+                self.gp0_buffer[1],
+                self.gp0_buffer[2],
+                self.gp0_buffer[3],
+                self.gp0_buffer[4],
+            ),
+            0x2c => self.gp0_textured_quad(
+                self.gp0_buffer[0],
+                self.gp0_buffer[1],
+                self.gp0_buffer[2],
+                self.gp0_buffer[3],
+                self.gp0_buffer[4],
+                self.gp0_buffer[5],
+                self.gp0_buffer[6],
+                self.gp0_buffer[7],
+                self.gp0_buffer[8],
+            ),
+            0x30 => self.gp0_shaded_triangle(
+                self.gp0_buffer[0],
+                self.gp0_buffer[1],
+                self.gp0_buffer[2],
+                self.gp0_buffer[3],
+                self.gp0_buffer[4],
+                self.gp0_buffer[5],
+            ),
+            0x38 => self.gp0_shaded_quad(
+                self.gp0_buffer[0],
+                self.gp0_buffer[1],
+                self.gp0_buffer[2],
+                self.gp0_buffer[3],
+                self.gp0_buffer[4],
+                self.gp0_buffer[5],
+                self.gp0_buffer[6],
+                self.gp0_buffer[7],
+            ),
+            0xa0 => self.gp0_load_image(self.gp0_buffer[1], self.gp0_buffer[2]),
+            0xc0 => self.gp0_store_image(self.gp0_buffer[1], self.gp0_buffer[2]),
             0xe1 => self.gp0_draw_mode(header),
             0xe2 => self.gp0_texture_window(header),
             0xe3 => self.gp0_drawing_area_top_left(header),
             0xe4 => self.gp0_drawing_area_bottom_right(header),
             0xe5 => self.gp0_drawing_offset(header),
             0xe6 => self.gp0_mask_bit_setting(header),
-
-            0x28 => {
-                const v1 = self.gp0_buffer[1];
-                const v2 = self.gp0_buffer[2];
-                const v3 = self.gp0_buffer[3];
-                const v4 = self.gp0_buffer[4];
-                std.debug.print("gpu: draw flat quad. V1:{x} V2:{x} V3:{x} V4:{x}\n", .{ v1, v2, v3, v4 });
-            },
             else => std.debug.panic("Unhandled GP0 execute opcode: {x}\n", .{opcode}),
         }
+    }
+
+    fn gp0_reset_command_buffer(self: *Self) void {
+        _ = self;
+        // TODO: "resets the command buffer and CLUT cache."
+    }
+
+    fn gp0_flat_quad(
+        self: *Self,
+        v1: u32,
+        v2: u32,
+        v3: u32,
+        v4: u32,
+    ) void {
+        _ = self;
+        std.debug.print("gpu: draw flat quad. V1:{x} V2:{x} V3:{x} V4:{x}\n", .{ v1, v2, v3, v4 });
+    }
+
+    fn gp0_textured_quad(
+        self: *Self,
+        c1: u32,
+        v1: u32,
+        uv1: u32,
+        v2: u32,
+        uv2: u32,
+        v3: u32,
+        uv3: u32,
+        v4: u32,
+        uv4: u32,
+    ) void {
+        _ = self;
+        std.debug.print("gpu: draw textured quad. C1:{x} V1:{x} UV1:{x} V2:{x} UV2:{x} V3:{x} UV3:{x} V4:{x} UV4:{x}\n", .{ c1, v1, uv1, v2, uv2, v3, uv3, v4, uv4 });
+    }
+
+    fn gp0_shaded_quad(
+        self: *Self,
+        c1: u32,
+        v1: u32,
+        c2: u32,
+        v2: u32,
+        c3: u32,
+        v3: u32,
+        c4: u32,
+        v4: u32,
+    ) void {
+        _ = self;
+        std.debug.print("gpu: draw shaded quad. C1:{x} V1:{x} C2:{x} V2:{x} C3:{x} V3:{x} C4:{x} V4:{x}\n", .{ c1, v1, c2, v2, c3, v3, c4, v4 });
+    }
+
+    fn gp0_shaded_triangle(
+        self: *Self,
+        c1: u32,
+        v1: u32,
+        c2: u32,
+        v2: u32,
+        c3: u32,
+        v3: u32,
+    ) void {
+        _ = self;
+        std.debug.print("gpu: draw shaded triangle. C1:{x} V1:{x} C2:{x} V2:{x} C3:{x} V3:{x}\n", .{ c1, v1, c2, v2, c3, v3 });
+    }
+
+    fn gp0_load_image(self: *Self, word1: u32, word2: u32) void {
+        const dest: ImageDestination = @bitCast(word1);
+        const dims: ImageDimensions = @bitCast(word2);
+
+        std.debug.print("gpu: copy CPU to VRAM. Dest({d}, {d}) Size({d}x{d})\n", .{
+            dest.x,
+            dest.y,
+            dims.width,
+            dims.height,
+        });
+
+        const width: u32 = dims.width;
+        const height: u32 = dims.height;
+        const image_size = ((width + 1) / 2) * height;
+
+        self.gp0_mode = .cpu_to_vram;
+        self.gp0_words_remaining = image_size;
+
+        // TODO: store dest.x and dest.y
+    }
+
+    fn gp0_store_image(self: *Self, word1: u32, word2: u32) void {
+        const dest: ImageDestination = @bitCast(word1);
+        const dims: ImageDimensions = @bitCast(word2);
+
+        std.debug.print("GPU: Copy VRAM to CPU. Dest({d}, {d}) Size({d}x{d})\n", .{
+            dest.x,
+            dest.y,
+            dims.width,
+            dims.height,
+        });
+
+        const width: u32 = dims.width;
+        const height: u32 = dims.height;
+        const image_size = ((width + 1) / 2) * height;
+
+        self.gp0_mode = .vram_to_cpu;
+        self.gp0_words_remaining = image_size;
+
+        self.gpustat.ready_send_vram_to_cpu = true;
     }
 
     fn gp0_draw_mode(self: *Self, value: u32) void {
@@ -404,6 +610,22 @@ pub const Gpu = struct {
 
         // TODO: clear FIFO
         // TODO: invalidate GPU cache
+    }
+
+    fn gp1_reset_command_buffer(self: *Self) void {
+        self.gp0_mode = .command;
+        self.gp0_words_remaining = 0;
+        // TODO: clear FIFO
+    }
+
+    fn gp1_acknowledge_irq(self: *Self) void {
+        _ = self;
+    }
+
+    fn gp1_display_enable(self: *Self, value: u32) void {
+        const cmd: DisplayEnableCommand = @bitCast(value);
+
+        self.gpustat.display_disabled = cmd.display_disabled;
     }
 
     fn gp1_dma_direction(self: *Self, value: u32) void {

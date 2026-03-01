@@ -243,7 +243,7 @@ pub const Bus = struct {
                     const data = self.read32(current_address);
 
                     switch (port) {
-                        .gpu => std.debug.print("GPU DATA: {x}\n", .{data}),
+                        .gpu => self.gpu.write32(0, data),
                         else => std.debug.panic("Unhandled DMA block FromRam for channel {}", .{channel_index}),
                     }
                 },
