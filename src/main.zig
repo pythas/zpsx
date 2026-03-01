@@ -13,9 +13,10 @@ const Emulator = @import("emulator.zig").Emulator;
 const Cpu = @import("cpu.zig").Cpu;
 const Bus = @import("bus.zig").Bus;
 
+const UiState = @import("ui/state.zig").UiState;
 const RegisterWindow = @import("ui/register.zig").RegisterWindow;
 const DisassemblyWindow = @import("ui/disassembly.zig").DisassemblyWindow;
-const UiState = @import("ui/state.zig").UiState;
+const VramWindow = @import("ui/vram.zig").VramWindow;
 
 const AppState = struct {
     allocator: std.mem.Allocator,
@@ -25,6 +26,7 @@ const AppState = struct {
     ui: UiState,
     register_window: RegisterWindow,
     disassembly_window: DisassemblyWindow,
+    vram_window: VramWindow,
 
     pass_action: sg.PassAction,
 
@@ -36,10 +38,13 @@ const AppState = struct {
         self.* = .{
             .allocator = allocator,
             .emulator = try Emulator.init(allocator, breakpoints),
+
             .ui = UiState.init(),
-            .pass_action = .{},
             .register_window = RegisterWindow.init(),
             .disassembly_window = DisassemblyWindow.init(),
+            .vram_window = VramWindow.init(),
+
+            .pass_action = .{},
         };
 
         return self;
@@ -126,6 +131,7 @@ export fn frame() void {
 
     state.register_window.draw(&state.ui.registers, state.emulator);
     state.disassembly_window.draw(&state.ui.disassembly, state.emulator);
+    state.vram_window.draw(&state.ui.vram, state.emulator);
 
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     simgui.render();
