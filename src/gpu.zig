@@ -37,6 +37,33 @@ pub const DmaDirection = enum(u2) {
 };
 
 // GP0
+pub const PolygonOpcode = packed struct(u8) {
+    raw_texture: bool,
+    semi_transparent: bool,
+    is_textured: bool,
+    is_quad: bool,
+    is_gouraud: bool,
+    command_group: u3,
+};
+
+const GP0_LENGTHS = init_lengths: {
+    var lengths = [_]usize{1} ** 256;
+
+    for (0x20..0x40) |opcode| {
+        const op: PolygonOpcode = @bitCast(@as(u8, @intCast(opcode)));
+
+        const vertices: usize = if (op.is_quad) 4 else 3;
+        var len: usize = 1 + vertices;
+
+        if (op.is_gouraud) len += vertices - 1;
+        if (op.is_textured) len += vertices;
+
+        lengths[opcode] = len;
+    }
+
+    break :init_lengths lengths;
+};
+
 pub const DrawModeCommand = packed struct(u32) {
     texture_page_x_base: u4,
     texture_page_y_base_1: u1,
@@ -89,7 +116,6 @@ pub const MaskBitSettingCommand = packed struct(u32) {
 };
 
 // GP1
-
 pub const DmaDirectionCommand = packed struct(u32) {
     dma_direction: DmaDirection,
     _unused: u22 = 0,
@@ -206,6 +232,10 @@ pub const Gpu = struct {
     display_line_start: u16,
     display_line_end: u16,
 
+    gp0_buffer: [16]u32,
+    gp0_buffer_len: usize,
+    gp0_expected_len: usize,
+
     const Self = @This();
 
     pub fn init() Self {
@@ -235,6 +265,10 @@ pub const Gpu = struct {
             .display_horiz_end = 0xc00,
             .display_line_start = 0x10,
             .display_line_end = 0x100,
+
+            .gp0_buffer = [_]u32{0} ** 16,
+            .gp0_buffer_len = 0,
+            .gp0_expected_len = 0,
         };
     }
 
@@ -254,20 +288,7 @@ pub const Gpu = struct {
 
     pub fn write32(self: *Self, address: u32, value: u32) void {
         switch (address) {
-            0x00 => {
-                const opcode: u8 = @truncate(value >> 24);
-
-                switch (opcode) {
-                    0x00 => {},
-                    0xe1 => self.gp0_draw_mode(value),
-                    0xe2 => self.gp0_texture_window(value),
-                    0xe3 => self.gp0_drawing_area_top_left(value),
-                    0xe4 => self.gp0_drawing_area_bottom_right(value),
-                    0xe5 => self.gp0_drawing_offset(value),
-                    0xe6 => self.gp0_mask_bit_setting(value),
-                    else => std.debug.panic("Unhandled GP0 opcode: {x}\n", .{opcode}),
-                }
-            },
+            0x00 => self.gp0_write(value),
             0x04 => {
                 const opcode: u8 = @truncate(value >> 24);
 
@@ -286,6 +307,45 @@ pub const Gpu = struct {
     }
 
     // GP0
+    pub fn gp0_write(self: *Self, value: u32) void {
+        if (self.gp0_buffer_len == 0) {
+            const opcode: u8 = @truncate(value >> 24);
+            self.gp0_expected_len = GP0_LENGTHS[opcode];
+        }
+
+        self.gp0_buffer[self.gp0_buffer_len] = value;
+        self.gp0_buffer_len += 1;
+
+        if (self.gp0_buffer_len == self.gp0_expected_len) {
+            self.gp0_execute_command();
+            self.gp0_buffer_len = 0;
+        }
+    }
+
+    fn gp0_execute_command(self: *Self) void {
+        const header = self.gp0_buffer[0];
+        const opcode: u8 = @truncate(header >> 24);
+
+        switch (opcode) {
+            0x00 => {},
+            0xe1 => self.gp0_draw_mode(header),
+            0xe2 => self.gp0_texture_window(header),
+            0xe3 => self.gp0_drawing_area_top_left(header),
+            0xe4 => self.gp0_drawing_area_bottom_right(header),
+            0xe5 => self.gp0_drawing_offset(header),
+            0xe6 => self.gp0_mask_bit_setting(header),
+
+            0x28 => {
+                const v1 = self.gp0_buffer[1];
+                const v2 = self.gp0_buffer[2];
+                const v3 = self.gp0_buffer[3];
+                const v4 = self.gp0_buffer[4];
+                std.debug.print("gpu: draw flat quad. V1:{x} V2:{x} V3:{x} V4:{x}\n", .{ v1, v2, v3, v4 });
+            },
+            else => std.debug.panic("Unhandled GP0 execute opcode: {x}\n", .{opcode}),
+        }
+    }
+
     fn gp0_draw_mode(self: *Self, value: u32) void {
         const cmd: DrawModeCommand = @bitCast(value);
 
