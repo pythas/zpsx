@@ -87,12 +87,11 @@ pub const Bus = struct {
             memory_map.ram.start...memory_map.ram.end => self.ram.read32(address),
             memory_map.irq_control.start...memory_map.irq_control.end => 0x00,
             memory_map.dma.start...memory_map.dma.end => self.dma.read32(address - memory_map.dma.start),
-
-            memory_map.gpu.start...memory_map.gpu.end => {
-                return self.gpu.read32(address - memory_map.gpu.start);
-                // std.debug.print("bus: Unhandled read32 from GPU\n", .{});
-                // return 0;
+            memory_map.timers.start...memory_map.timers.end => {
+                std.debug.print("bus: Unhandled read16 from IRQ_CONTROL\n", .{});
+                return 0;
             },
+            memory_map.gpu.start...memory_map.gpu.end => return self.gpu.read32(address - memory_map.gpu.start),
             memory_map.bios.start...memory_map.bios.end => self.bios.read32(address - memory_map.bios.start),
             else => std.debug.panic("bus: Unsupported read32: {x}", .{address}),
         };
@@ -113,7 +112,7 @@ pub const Bus = struct {
             memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write32 to IRQ_CONTROL\n", .{}),
             memory_map.dma.start...memory_map.dma.end => self.dma.write32(address - memory_map.dma.start, value),
             memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write32 to TIMERS\n", .{}),
-            memory_map.gpu.start...memory_map.gpu.end => std.debug.print("bus: Unhandled write32 to GPU\n", .{}),
+            memory_map.gpu.start...memory_map.gpu.end => self.gpu.write32(address - memory_map.gpu.start, value),
             memory_map.mem_control.start...memory_map.mem_control.end => std.debug.print("bus: Unhandled write32 to MEMCONTROL\n", .{}),
             memory_map.ram_size.start...memory_map.ram_size.end => std.debug.print("bus: Unhandled write32 to RAM_SIZE\n", .{}),
             memory_map.cache_control.start...memory_map.cache_control.end => std.debug.print("bus: Unhandled write32 to CACHE_CONTROL\n", .{}),
@@ -193,5 +192,110 @@ pub const Bus = struct {
             memory_map.exp2.start...memory_map.exp2.end => std.debug.print("bus: Unhandled write8 to EXPANSION_2\n", .{}),
             else => std.debug.panic("bus: Unsupported write8: {x}", .{address}),
         }
+    }
+
+    pub fn processPendingDma(self: *Self) void {
+        for (0..7) |i| {
+            const channel_bit = @as(u7, 1) << @intCast(i);
+
+            if ((self.dma.pending_channels & channel_bit) != 0) {
+                self.dma.pending_channels &= ~channel_bit;
+
+                self.doDma(i);
+            }
+        }
+    }
+
+    fn doDma(self: *Self, channel_index: usize) void {
+        const channel = &self.dma.channels[channel_index];
+
+        switch (channel.chcr.sync_mode) {
+            .manual, .request => self.doDmaBlock(channel_index),
+            .linked_list => self.doDmaLinkedList(channel_index),
+            else => unreachable,
+        }
+    }
+
+    fn doDmaBlock(self: *Self, channel_index: usize) void {
+        const channel = &self.dma.channels[channel_index];
+        const port: @import("dma.zig").Port = @enumFromInt(channel_index);
+
+        var address = channel.madr;
+
+        var remaining = channel.transferSize() orelse std.debug.panic("Could not calculate block transfer size", .{});
+
+        while (remaining > 0) {
+            const current_address = address & 0x001f_fffc;
+
+            switch (channel.chcr.transfer_direction) {
+                .to_ram => {
+                    const data: u32 = switch (port) {
+                        .otc => if (remaining == 1)
+                            0x00ff_ffff
+                        else
+                            (address -% 4) & 0x001f_ffff,
+                        else => std.debug.panic("Unhandled DMA block ToRam for channel {}", .{channel_index}),
+                    };
+
+                    self.write32(current_address, data);
+                },
+                .from_ram => {
+                    const data = self.read32(current_address);
+
+                    switch (port) {
+                        .gpu => std.debug.print("GPU DATA: {x}\n", .{data}),
+                        else => std.debug.panic("Unhandled DMA block FromRam for channel {}", .{channel_index}),
+                    }
+                },
+            }
+
+            switch (channel.chcr.madr_increment) {
+                .increment => address +%= 4,
+                .decrement => address -%= 4,
+            }
+
+            remaining -= 1;
+        }
+
+        channel.setInactive();
+    }
+
+    fn doDmaLinkedList(self: *Self, channel_index: usize) void {
+        const channel = &self.dma.channels[channel_index];
+        const port: @import("dma.zig").Port = @enumFromInt(channel_index);
+
+        var address = channel.madr & 0x001f_fffc;
+
+        if (channel.chcr.transfer_direction == .to_ram) {
+            unreachable;
+        }
+
+        if (port != .gpu) {
+            unreachable;
+        }
+
+        while (true) {
+            const header = self.read32(address);
+
+            var remaining = header >> 24;
+
+            while (remaining > 0) {
+                address = (address +% 4) & 0x001f_fffc;
+
+                const command = self.read32(address);
+
+                self.gpu.write32(0x00, command);
+
+                remaining -= 1;
+            }
+
+            if (header & 0x0080_0000 != 0) {
+                break;
+            }
+
+            address = header & 0x001f_fffc;
+        }
+
+        channel.setInactive();
     }
 };

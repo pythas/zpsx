@@ -52,21 +52,46 @@ pub const DisassemblyWindow = struct {
             var buf: [128]u8 = undefined;
 
             for (0..40) |i| {
-                const addr = start_pc +% @as(u32, @intCast(i * 4));
-                const instr = bus.read32(addr);
-                const dis = disassemble(@bitCast(instr), addr, &buf) catch "error";
+                @memset(&buf, 0);
 
-                const is_pc = (addr == cpu.pc);
-                const is_bp = emulator.breakpoints.contains(addr);
+                const address = start_pc +% @as(u32, @intCast(i * 4));
+                const instruction = bus.read32(address);
+                const disassembly = disassemble(@bitCast(instruction), address, &buf) catch "error";
+
+                const is_pc = (address == cpu.pc);
+                const is_bp = emulator.breakpoints.contains(address);
 
                 if (is_pc and is_bp) {
-                    ig.igTextColored(.{ .x = 1.0, .y = 0.3, .z = 0.3, .w = 1.0 }, "-> * %08X: %08X  %s", addr, instr, dis.ptr);
+                    ig.igTextColored(
+                        .{ .x = 1.0, .y = 0.3, .z = 0.3, .w = 1.0 },
+                        "-> * %08X: %08X  %s",
+                        address,
+                        instruction,
+                        disassembly.ptr,
+                    );
                 } else if (is_pc) {
-                    ig.igTextColored(.{ .x = 1.0, .y = 1.0, .z = 0.0, .w = 1.0 }, "->   %08X: %08X  %s", addr, instr, dis.ptr);
+                    ig.igTextColored(
+                        .{ .x = 1.0, .y = 1.0, .z = 0.0, .w = 1.0 },
+                        "->   %08X: %08X  %s",
+                        address,
+                        instruction,
+                        disassembly.ptr,
+                    );
                 } else if (is_bp) {
-                    ig.igTextColored(.{ .x = 1.0, .y = 0.5, .z = 0.5, .w = 1.0 }, "   * %08X: %08X  %s", addr, instr, dis.ptr);
+                    ig.igTextColored(
+                        .{ .x = 1.0, .y = 0.5, .z = 0.5, .w = 1.0 },
+                        "   * %08X: %08X  %s",
+                        address,
+                        instruction,
+                        disassembly.ptr,
+                    );
                 } else {
-                    ig.igText("     %08X: %08X  %s", addr, instr, dis.ptr);
+                    ig.igText(
+                        "     %08X: %08X  %s",
+                        address,
+                        instruction,
+                        disassembly.ptr,
+                    );
                 }
             }
         }

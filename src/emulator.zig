@@ -52,6 +52,10 @@ pub const Emulator = struct {
 
     pub fn step(self: *Self) void {
         self.cpu.step();
+
+        if (self.bus.dma.pending_channels != 0) {
+            self.bus.processPendingDma();
+        }
     }
 
     pub fn stepOver(self: *Self) void {
@@ -82,7 +86,7 @@ pub const Emulator = struct {
     pub fn runFrame(self: *Self) void {
         if (self.is_paused) return;
 
-        for (0..10000) |_| {
+        for (0..100000) |_| {
             self.step();
 
             if (self.breakpoints.contains(self.cpu.pc) or (self.temp_breakpoint != null and self.cpu.pc == self.temp_breakpoint.?)) {
