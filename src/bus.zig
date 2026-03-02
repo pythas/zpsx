@@ -48,7 +48,7 @@ pub const Bus = struct {
     pub fn init(allocator: std.mem.Allocator) !Self {
         const ram = try Ram.init(allocator);
         const dma = Dma.init();
-        const gpu = Gpu.init();
+        const gpu = try Gpu.init(allocator);
         const bios = try Bios.init(allocator);
 
         return .{
@@ -62,6 +62,8 @@ pub const Bus = struct {
 
     pub fn deinit(self: *Self) void {
         self.ram.deinit();
+        self.dma.deinit();
+        self.gpu.deinit();
         self.bios.deinit();
     }
 
@@ -135,7 +137,7 @@ pub const Bus = struct {
                 return 0;
             },
             memory_map.spu.start...memory_map.spu.end => {
-                std.debug.print("bus: Unhandled read16 from SPU\n", .{});
+                // std.debug.print("bus: Unhandled read16 from SPU\n", .{});
                 return 0;
             },
             else => std.debug.panic("bus: Unsupported read16: {x}", .{address}),
@@ -156,7 +158,9 @@ pub const Bus = struct {
             memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
             memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write16 to IRQ_CONTROL\n", .{}),
             memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write16 to TIMERS\n", .{}),
-            memory_map.spu.start...memory_map.spu.end => std.debug.print("bus: Unhandled write16 to SPU\n", .{}),
+            memory_map.spu.start...memory_map.spu.end => {
+                // std.debug.print("bus: Unhandled write16 to SPU\n", .{});
+            },
             else => std.debug.panic("bus: Unsupported write16: {x}", .{address}),
         }
     }

@@ -1,5 +1,19 @@
 const std = @import("std");
 
+const Renderer = @import("renderer.zig").Renderer;
+
+pub const Point = struct {
+    x: i16,
+    y: i16,
+};
+
+inline fn unpack_vertex(word: u32) Point {
+    return .{
+        .x = @bitCast(@as(u16, @truncate(word))),
+        .y = @bitCast(@as(u16, @truncate(word >> 16))),
+    };
+}
+
 pub const SemiTransparency = enum(u2) {
     b_half_plus_f_half = 0,
     b_plus_f = 1,
@@ -234,6 +248,10 @@ pub const GpuStatusRegister = packed struct(u32) {
 };
 
 pub const Gpu = struct {
+    allocator: std.mem.Allocator,
+
+    renderer: Renderer,
+
     gpustat: GpuStatusRegister,
 
     texture_rect_x_flip: bool,
@@ -269,8 +287,11 @@ pub const Gpu = struct {
 
     const Self = @This();
 
-    pub fn init() Self {
+    pub fn init(allocator: std.mem.Allocator) !Self {
         return .{
+            .allocator = allocator,
+            .renderer = try Renderer.init(allocator),
+
             .gpustat = @bitCast(@as(u32, 0x1c802000)),
 
             .texture_rect_x_flip = false,
@@ -307,7 +328,7 @@ pub const Gpu = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        _ = self;
+        self.renderer.deinit();
     }
 
     pub fn read32(self: *Self, address: u32) u32 {
@@ -462,8 +483,35 @@ pub const Gpu = struct {
         v3: u32,
         v4: u32,
     ) void {
-        _ = self;
-        std.debug.print("gpu: draw flat quad. V1:{x} V2:{x} V3:{x} V4:{x}\n", .{ v1, v2, v3, v4 });
+        const color = self.gp0_buffer[0] & 0xFFFFFF;
+
+        const p1 = unpack_vertex(v1);
+        const p2 = unpack_vertex(v2);
+        const p3 = unpack_vertex(v3);
+        const p4 = unpack_vertex(v4);
+
+        self.renderer.push_shaded_triangle(
+            p1.x + self.drawing_x_offset,
+            p1.y + self.drawing_y_offset,
+            color,
+            p2.x + self.drawing_x_offset,
+            p2.y + self.drawing_y_offset,
+            color,
+            p3.x + self.drawing_x_offset,
+            p3.y + self.drawing_y_offset,
+            color,
+        );
+        self.renderer.push_shaded_triangle(
+            p2.x + self.drawing_x_offset,
+            p2.y + self.drawing_y_offset,
+            color,
+            p3.x + self.drawing_x_offset,
+            p3.y + self.drawing_y_offset,
+            color,
+            p4.x + self.drawing_x_offset,
+            p4.y + self.drawing_y_offset,
+            color,
+        );
     }
 
     fn gp0_textured_quad(
@@ -493,8 +541,38 @@ pub const Gpu = struct {
         c4: u32,
         v4: u32,
     ) void {
-        _ = self;
-        std.debug.print("gpu: draw shaded quad. C1:{x} V1:{x} C2:{x} V2:{x} C3:{x} V3:{x} C4:{x} V4:{x}\n", .{ c1, v1, c2, v2, c3, v3, c4, v4 });
+        const p1 = unpack_vertex(v1);
+        const p2 = unpack_vertex(v2);
+        const p3 = unpack_vertex(v3);
+        const p4 = unpack_vertex(v4);
+
+        const color1 = c1 & 0xffffff;
+        const color2 = c2 & 0xffffff;
+        const color3 = c3 & 0xffffff;
+        const color4 = c4 & 0xffffff;
+
+        self.renderer.push_shaded_triangle(
+            p1.x + self.drawing_x_offset,
+            p1.y + self.drawing_y_offset,
+            color1,
+            p2.x + self.drawing_x_offset,
+            p2.y + self.drawing_y_offset,
+            color2,
+            p3.x + self.drawing_x_offset,
+            p3.y + self.drawing_y_offset,
+            color3,
+        );
+        self.renderer.push_shaded_triangle(
+            p2.x + self.drawing_x_offset,
+            p2.y + self.drawing_y_offset,
+            color2,
+            p3.x + self.drawing_x_offset,
+            p3.y + self.drawing_y_offset,
+            color3,
+            p4.x + self.drawing_x_offset,
+            p4.y + self.drawing_y_offset,
+            color4,
+        );
     }
 
     fn gp0_shaded_triangle(
@@ -506,8 +584,25 @@ pub const Gpu = struct {
         c3: u32,
         v3: u32,
     ) void {
-        _ = self;
-        std.debug.print("gpu: draw shaded triangle. C1:{x} V1:{x} C2:{x} V2:{x} C3:{x} V3:{x}\n", .{ c1, v1, c2, v2, c3, v3 });
+        const p1 = unpack_vertex(v1);
+        const p2 = unpack_vertex(v2);
+        const p3 = unpack_vertex(v3);
+
+        const color1 = c1 & 0xffffff;
+        const color2 = c2 & 0xffffff;
+        const color3 = c3 & 0xffffff;
+
+        self.renderer.push_shaded_triangle(
+            p1.x + self.drawing_x_offset,
+            p1.y + self.drawing_y_offset,
+            color1,
+            p2.x + self.drawing_x_offset,
+            p2.y + self.drawing_y_offset,
+            color2,
+            p3.x + self.drawing_x_offset,
+            p3.y + self.drawing_y_offset,
+            color3,
+        );
     }
 
     fn gp0_load_image(self: *Self, word1: u32, word2: u32) void {
@@ -595,6 +690,7 @@ pub const Gpu = struct {
 
         self.drawing_x_offset = cmd.x;
         self.drawing_y_offset = cmd.y;
+        std.debug.print("gpu: drawing offset: {d}, {d}\n", .{ self.drawing_x_offset, self.drawing_y_offset });
     }
 
     fn gp0_mask_bit_setting(self: *Self, value: u32) void {
@@ -606,7 +702,7 @@ pub const Gpu = struct {
 
     // GP1
     fn gp1_reset(self: *Self) void {
-        self.* = Self.init();
+        self.* = Self.init(self.allocator) catch @panic("Failed to reset GPU");
 
         // TODO: clear FIFO
         // TODO: invalidate GPU cache

@@ -133,6 +133,8 @@ export fn frame() void {
     state.disassembly_window.draw(&state.ui.disassembly, state.emulator);
     state.vram_window.draw(&state.ui.vram, state.emulator);
 
+    state.emulator.bus.gpu.renderer.flush();
+
     sg.beginPass(.{ .action = state.pass_action, .swapchain = sglue.swapchain() });
     simgui.render();
     sg.endPass();
