@@ -5,14 +5,35 @@ const Renderer = @import("renderer.zig").Renderer;
 pub const Point = struct {
     x: i16,
     y: i16,
+
+    pub inline fn fromWord(word: u32) Point {
+        return .{
+            .x = @bitCast(@as(u16, @truncate(word))),
+            .y = @bitCast(@as(u16, @truncate(word >> 16))),
+        };
+    }
+
+    pub inline fn offset(self: Point, dx: i16, dy: i16) Point {
+        return .{
+            .x = self.x + dx,
+            .y = self.y + dy,
+        };
+    }
 };
 
-inline fn unpack_vertex(word: u32) Point {
-    return .{
-        .x = @bitCast(@as(u16, @truncate(word))),
-        .y = @bitCast(@as(u16, @truncate(word >> 16))),
-    };
-}
+pub const Color = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+
+    pub inline fn fromWord(word: u32) Color {
+        return .{
+            .r = @truncate(word),
+            .g = @truncate(word >> 8),
+            .b = @truncate(word >> 16),
+        };
+    }
+};
 
 pub const SemiTransparency = enum(u2) {
     b_half_plus_f_half = 0,
@@ -333,7 +354,7 @@ pub const Gpu = struct {
 
     pub fn read32(self: *Self, address: u32) u32 {
         return switch (address) {
-            0x00 => self.gp0_read(),
+            0x00 => self.gp0Read(),
             0x04 => {
                 // HACK: force vertical resolution to 240
                 var fake_stat = self.gpustat;
@@ -349,20 +370,20 @@ pub const Gpu = struct {
 
     pub fn write32(self: *Self, address: u32, value: u32) void {
         switch (address) {
-            0x00 => self.gp0_write(value),
+            0x00 => self.gp0Write(value),
             0x04 => {
                 const opcode: u8 = @truncate(value >> 24);
 
                 switch (opcode) {
-                    0x00 => self.gp1_reset(),
-                    0x01 => self.gp1_reset_command_buffer(),
-                    0x02 => self.gp1_acknowledge_irq(),
-                    0x03 => self.gp1_display_enable(value),
-                    0x04 => self.gp1_dma_direction(value),
-                    0x05 => self.gp1_display_vram_start(value),
-                    0x06 => self.gp1_display_horizontal_range(value),
-                    0x07 => self.gp1_display_vertical_range(value),
-                    0x08 => self.gp1_display_mode(value),
+                    0x00 => self.gp1Reset(),
+                    0x01 => self.gp1ResetCommandBuffer(),
+                    0x02 => self.gp1AcknowledgeIrq(),
+                    0x03 => self.gp1DisplayEnable(value),
+                    0x04 => self.gp1DmaDirection(value),
+                    0x05 => self.gp1DisplayVramStart(value),
+                    0x06 => self.gp1DisplayHorizontalRange(value),
+                    0x07 => self.gp1DisplayVerticalRange(value),
+                    0x08 => self.gp1DisplayMode(value),
                     else => std.debug.panic("Unhandled GP1 opcode: {x}\n", .{opcode}),
                 }
             },
@@ -371,7 +392,7 @@ pub const Gpu = struct {
     }
 
     // GP0
-    pub fn gp0_write(self: *Self, value: u32) void {
+    pub fn gp0Write(self: *Self, value: u32) void {
         switch (self.gp0_mode) {
             .command => {
                 if (self.gp0_buffer_len == 0) {
@@ -383,7 +404,7 @@ pub const Gpu = struct {
                 self.gp0_buffer_len += 1;
 
                 if (self.gp0_buffer_len == self.gp0_expected_len) {
-                    self.gp0_execute_command();
+                    self.gp0ExecuteCommand();
                     self.gp0_buffer_len = 0;
                 }
             },
@@ -400,7 +421,7 @@ pub const Gpu = struct {
         }
     }
 
-    pub fn gp0_read(self: *Self) u32 {
+    pub fn gp0Read(self: *Self) u32 {
         if (self.gp0_mode == .vram_to_cpu) {
             const data: u32 = 0;
 
@@ -417,20 +438,20 @@ pub const Gpu = struct {
         return 0;
     }
 
-    fn gp0_execute_command(self: *Self) void {
+    fn gp0ExecuteCommand(self: *Self) void {
         const header = self.gp0_buffer[0];
         const opcode: u8 = @truncate(header >> 24);
 
         switch (opcode) {
             0x00 => {},
-            0x01 => self.gp0_reset_command_buffer(),
-            0x28 => self.gp0_flat_quad(
+            0x01 => self.gp0ResetCommandBuffer(),
+            0x28 => self.gp0FlatQuad(
                 self.gp0_buffer[1],
                 self.gp0_buffer[2],
                 self.gp0_buffer[3],
                 self.gp0_buffer[4],
             ),
-            0x2c => self.gp0_textured_quad(
+            0x2c => self.gp0TexturedQuad(
                 self.gp0_buffer[0],
                 self.gp0_buffer[1],
                 self.gp0_buffer[2],
@@ -441,7 +462,7 @@ pub const Gpu = struct {
                 self.gp0_buffer[7],
                 self.gp0_buffer[8],
             ),
-            0x30 => self.gp0_shaded_triangle(
+            0x30 => self.gp0ShadedTriangle(
                 self.gp0_buffer[0],
                 self.gp0_buffer[1],
                 self.gp0_buffer[2],
@@ -449,7 +470,7 @@ pub const Gpu = struct {
                 self.gp0_buffer[4],
                 self.gp0_buffer[5],
             ),
-            0x38 => self.gp0_shaded_quad(
+            0x38 => self.gp0ShadedQuad(
                 self.gp0_buffer[0],
                 self.gp0_buffer[1],
                 self.gp0_buffer[2],
@@ -459,62 +480,45 @@ pub const Gpu = struct {
                 self.gp0_buffer[6],
                 self.gp0_buffer[7],
             ),
-            0xa0 => self.gp0_load_image(self.gp0_buffer[1], self.gp0_buffer[2]),
-            0xc0 => self.gp0_store_image(self.gp0_buffer[1], self.gp0_buffer[2]),
-            0xe1 => self.gp0_draw_mode(header),
-            0xe2 => self.gp0_texture_window(header),
-            0xe3 => self.gp0_drawing_area_top_left(header),
-            0xe4 => self.gp0_drawing_area_bottom_right(header),
-            0xe5 => self.gp0_drawing_offset(header),
-            0xe6 => self.gp0_mask_bit_setting(header),
+            0xa0 => self.gp0LoadImage(self.gp0_buffer[1], self.gp0_buffer[2]),
+            0xc0 => self.gp0StoreImage(self.gp0_buffer[1], self.gp0_buffer[2]),
+            0xe1 => self.gp0DrawMode(header),
+            0xe2 => self.gp0TextureWindow(header),
+            0xe3 => self.gp0DrawingAreaTopLeft(header),
+            0xe4 => self.gp0DrawingAreaBottomRight(header),
+            0xe5 => self.gp0DrawingOffset(header),
+            0xe6 => self.gp0MaskBitSetting(header),
             else => std.debug.panic("Unhandled GP0 execute opcode: {x}\n", .{opcode}),
         }
     }
 
-    fn gp0_reset_command_buffer(self: *Self) void {
+    fn gp0ResetCommandBuffer(self: *Self) void {
         _ = self;
         // TODO: "resets the command buffer and CLUT cache."
     }
 
-    fn gp0_flat_quad(
+    fn gp0FlatQuad(
         self: *Self,
         v1: u32,
         v2: u32,
         v3: u32,
         v4: u32,
     ) void {
-        const color = self.gp0_buffer[0] & 0xFFFFFF;
+        const color = Color.fromWord(self.gp0_buffer[0]);
 
-        const p1 = unpack_vertex(v1);
-        const p2 = unpack_vertex(v2);
-        const p3 = unpack_vertex(v3);
-        const p4 = unpack_vertex(v4);
+        const dx = self.drawing_x_offset;
+        const dy = self.drawing_y_offset;
 
-        self.renderer.push_shaded_triangle(
-            p1.x + self.drawing_x_offset,
-            p1.y + self.drawing_y_offset,
-            color,
-            p2.x + self.drawing_x_offset,
-            p2.y + self.drawing_y_offset,
-            color,
-            p3.x + self.drawing_x_offset,
-            p3.y + self.drawing_y_offset,
-            color,
-        );
-        self.renderer.push_shaded_triangle(
-            p2.x + self.drawing_x_offset,
-            p2.y + self.drawing_y_offset,
-            color,
-            p3.x + self.drawing_x_offset,
-            p3.y + self.drawing_y_offset,
-            color,
-            p4.x + self.drawing_x_offset,
-            p4.y + self.drawing_y_offset,
-            color,
-        );
+        const p1 = Point.fromWord(v1).offset(dx, dy);
+        const p2 = Point.fromWord(v2).offset(dx, dy);
+        const p3 = Point.fromWord(v3).offset(dx, dy);
+        const p4 = Point.fromWord(v4).offset(dx, dy);
+
+        self.renderer.pushShadedTriangle(p1, color, p2, color, p3, color);
+        self.renderer.pushShadedTriangle(p2, color, p3, color, p4, color);
     }
 
-    fn gp0_textured_quad(
+    fn gp0TexturedQuad(
         self: *Self,
         c1: u32,
         v1: u32,
@@ -530,7 +534,7 @@ pub const Gpu = struct {
         std.debug.print("gpu: draw textured quad. C1:{x} V1:{x} UV1:{x} V2:{x} UV2:{x} V3:{x} UV3:{x} V4:{x} UV4:{x}\n", .{ c1, v1, uv1, v2, uv2, v3, uv3, v4, uv4 });
     }
 
-    fn gp0_shaded_quad(
+    fn gp0ShadedQuad(
         self: *Self,
         c1: u32,
         v1: u32,
@@ -541,41 +545,24 @@ pub const Gpu = struct {
         c4: u32,
         v4: u32,
     ) void {
-        const p1 = unpack_vertex(v1);
-        const p2 = unpack_vertex(v2);
-        const p3 = unpack_vertex(v3);
-        const p4 = unpack_vertex(v4);
+        const dx = self.drawing_x_offset;
+        const dy = self.drawing_y_offset;
 
-        const color1 = c1 & 0xffffff;
-        const color2 = c2 & 0xffffff;
-        const color3 = c3 & 0xffffff;
-        const color4 = c4 & 0xffffff;
+        const p1 = Point.fromWord(v1).offset(dx, dy);
+        const p2 = Point.fromWord(v2).offset(dx, dy);
+        const p3 = Point.fromWord(v3).offset(dx, dy);
+        const p4 = Point.fromWord(v4).offset(dx, dy);
 
-        self.renderer.push_shaded_triangle(
-            p1.x + self.drawing_x_offset,
-            p1.y + self.drawing_y_offset,
-            color1,
-            p2.x + self.drawing_x_offset,
-            p2.y + self.drawing_y_offset,
-            color2,
-            p3.x + self.drawing_x_offset,
-            p3.y + self.drawing_y_offset,
-            color3,
-        );
-        self.renderer.push_shaded_triangle(
-            p2.x + self.drawing_x_offset,
-            p2.y + self.drawing_y_offset,
-            color2,
-            p3.x + self.drawing_x_offset,
-            p3.y + self.drawing_y_offset,
-            color3,
-            p4.x + self.drawing_x_offset,
-            p4.y + self.drawing_y_offset,
-            color4,
-        );
+        const color1 = Color.fromWord(c1);
+        const color2 = Color.fromWord(c2);
+        const color3 = Color.fromWord(c3);
+        const color4 = Color.fromWord(c4);
+
+        self.renderer.pushShadedTriangle(p1, color1, p2, color2, p3, color3);
+        self.renderer.pushShadedTriangle(p2, color2, p3, color3, p4, color4);
     }
 
-    fn gp0_shaded_triangle(
+    fn gp0ShadedTriangle(
         self: *Self,
         c1: u32,
         v1: u32,
@@ -584,28 +571,21 @@ pub const Gpu = struct {
         c3: u32,
         v3: u32,
     ) void {
-        const p1 = unpack_vertex(v1);
-        const p2 = unpack_vertex(v2);
-        const p3 = unpack_vertex(v3);
+        const dx = self.drawing_x_offset;
+        const dy = self.drawing_y_offset;
 
-        const color1 = c1 & 0xffffff;
-        const color2 = c2 & 0xffffff;
-        const color3 = c3 & 0xffffff;
+        const p1 = Point.fromWord(v1).offset(dx, dy);
+        const p2 = Point.fromWord(v2).offset(dx, dy);
+        const p3 = Point.fromWord(v3).offset(dx, dy);
 
-        self.renderer.push_shaded_triangle(
-            p1.x + self.drawing_x_offset,
-            p1.y + self.drawing_y_offset,
-            color1,
-            p2.x + self.drawing_x_offset,
-            p2.y + self.drawing_y_offset,
-            color2,
-            p3.x + self.drawing_x_offset,
-            p3.y + self.drawing_y_offset,
-            color3,
-        );
+        const color1 = Color.fromWord(c1);
+        const color2 = Color.fromWord(c2);
+        const color3 = Color.fromWord(c3);
+
+        self.renderer.pushShadedTriangle(p1, color1, p2, color2, p3, color3);
     }
 
-    fn gp0_load_image(self: *Self, word1: u32, word2: u32) void {
+    fn gp0LoadImage(self: *Self, word1: u32, word2: u32) void {
         const dest: ImageDestination = @bitCast(word1);
         const dims: ImageDimensions = @bitCast(word2);
 
@@ -626,7 +606,7 @@ pub const Gpu = struct {
         // TODO: store dest.x and dest.y
     }
 
-    fn gp0_store_image(self: *Self, word1: u32, word2: u32) void {
+    fn gp0StoreImage(self: *Self, word1: u32, word2: u32) void {
         const dest: ImageDestination = @bitCast(word1);
         const dims: ImageDimensions = @bitCast(word2);
 
@@ -647,7 +627,7 @@ pub const Gpu = struct {
         self.gpustat.ready_send_vram_to_cpu = true;
     }
 
-    fn gp0_draw_mode(self: *Self, value: u32) void {
+    fn gp0DrawMode(self: *Self, value: u32) void {
         const cmd: DrawModeCommand = @bitCast(value);
 
         self.gpustat.texture_page_x_base = cmd.texture_page_x_base;
@@ -662,7 +642,7 @@ pub const Gpu = struct {
         self.texture_rect_y_flip = cmd.texture_rect_y_flip;
     }
 
-    pub fn gp0_texture_window(self: *Self, value: u32) void {
+    pub fn gp0TextureWindow(self: *Self, value: u32) void {
         const cmd: TextureWindowCommand = @bitCast(value);
 
         self.texture_window_x_mask = cmd.mask_x;
@@ -671,21 +651,21 @@ pub const Gpu = struct {
         self.texture_window_y_offset = cmd.offset_y;
     }
 
-    fn gp0_drawing_area_top_left(self: *Self, value: u32) void {
+    fn gp0DrawingAreaTopLeft(self: *Self, value: u32) void {
         const cmd: DrawingAreaTopLeftCommand = @bitCast(value);
 
         self.drawing_area_left = cmd.drawing_area_left;
         self.drawing_area_top = cmd.drawing_area_top;
     }
 
-    fn gp0_drawing_area_bottom_right(self: *Self, value: u32) void {
+    fn gp0DrawingAreaBottomRight(self: *Self, value: u32) void {
         const cmd: DrawingAreaBottomRightCommand = @bitCast(value);
 
         self.drawing_area_right = cmd.drawing_area_right;
         self.drawing_area_bottom = cmd.drawing_area_bottom;
     }
 
-    fn gp0_drawing_offset(self: *Self, value: u32) void {
+    fn gp0DrawingOffset(self: *Self, value: u32) void {
         const cmd: DrawingOffsetCommand = @bitCast(value);
 
         self.drawing_x_offset = cmd.x;
@@ -693,7 +673,7 @@ pub const Gpu = struct {
         std.debug.print("gpu: drawing offset: {d}, {d}\n", .{ self.drawing_x_offset, self.drawing_y_offset });
     }
 
-    fn gp0_mask_bit_setting(self: *Self, value: u32) void {
+    fn gp0MaskBitSetting(self: *Self, value: u32) void {
         const cmd: MaskBitSettingCommand = @bitCast(value);
 
         self.gpustat.set_mask_bit = cmd.set_mask_bit;
@@ -701,57 +681,57 @@ pub const Gpu = struct {
     }
 
     // GP1
-    fn gp1_reset(self: *Self) void {
+    fn gp1Reset(self: *Self) void {
         self.* = Self.init(self.allocator) catch @panic("Failed to reset GPU");
 
         // TODO: clear FIFO
         // TODO: invalidate GPU cache
     }
 
-    fn gp1_reset_command_buffer(self: *Self) void {
+    fn gp1ResetCommandBuffer(self: *Self) void {
         self.gp0_mode = .command;
         self.gp0_words_remaining = 0;
         // TODO: clear FIFO
     }
 
-    fn gp1_acknowledge_irq(self: *Self) void {
+    fn gp1AcknowledgeIrq(self: *Self) void {
         _ = self;
     }
 
-    fn gp1_display_enable(self: *Self, value: u32) void {
+    fn gp1DisplayEnable(self: *Self, value: u32) void {
         const cmd: DisplayEnableCommand = @bitCast(value);
 
         self.gpustat.display_disabled = cmd.display_disabled;
     }
 
-    fn gp1_dma_direction(self: *Self, value: u32) void {
+    fn gp1DmaDirection(self: *Self, value: u32) void {
         const cmd: DmaDirectionCommand = @bitCast(value);
 
         self.gpustat.dma_direction = cmd.dma_direction;
     }
 
-    fn gp1_display_vram_start(self: *Self, value: u32) void {
+    fn gp1DisplayVramStart(self: *Self, value: u32) void {
         const cmd: DisplayVramStartCommand = @bitCast(value);
 
         self.display_vram_x_start = cmd.display_vram_x_start;
         self.display_vram_y_start = cmd.display_vram_y_start;
     }
 
-    fn gp1_display_horizontal_range(self: *Self, value: u32) void {
+    fn gp1DisplayHorizontalRange(self: *Self, value: u32) void {
         const cmd: DisplayHorizontalRangeCommand = @bitCast(value);
 
         self.display_horiz_start = cmd.display_horiz_start;
         self.display_horiz_end = cmd.display_horiz_end;
     }
 
-    fn gp1_display_vertical_range(self: *Self, value: u32) void {
+    fn gp1DisplayVerticalRange(self: *Self, value: u32) void {
         const cmd: DisplayVerticalRangeCommand = @bitCast(value);
 
         self.display_line_start = cmd.display_line_start;
         self.display_line_end = cmd.display_line_end;
     }
 
-    fn gp1_display_mode(self: *Self, value: u32) void {
+    fn gp1DisplayMode(self: *Self, value: u32) void {
         const cmd: DisplayModeCommand = @bitCast(value);
 
         self.gpustat.horizontal_resolution_1 = cmd.horizontal_resolution_1;

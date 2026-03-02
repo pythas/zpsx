@@ -148,42 +148,42 @@ pub const Cpu = struct {
         switch (instruction.r.opcode) {
             0b000000 => {
                 switch (instruction.r.funct) {
-                    0b000000 => self.op_sll(instruction),
-                    0b100101 => self.op_or(instruction),
-                    0b100001 => self.op_addu(instruction),
-                    0b101011 => self.op_sltu(instruction),
-                    0b001000 => self.op_jr(instruction),
-                    0b100100 => self.op_and(instruction),
-                    0b100000 => self.op_add(instruction),
-                    0b001001 => self.op_jalr(instruction),
-                    0b100011 => self.op_subu(instruction),
-                    0b000011 => self.op_sra(instruction),
-                    0b011010 => self.op_div(instruction),
-                    0b010010 => self.op_mflo(instruction),
-                    0b000010 => self.op_srl(instruction),
-                    0b011011 => self.op_divu(instruction),
-                    0b010000 => self.op_mfhi(instruction),
-                    0b101010 => self.op_slt(instruction),
-                    0b001100 => self.op_syscall(instruction),
-                    0b010011 => self.op_mtlo(instruction),
-                    0b010001 => self.op_mthi(instruction),
-                    0b000100 => self.op_sllv(instruction),
-                    0b100111 => self.op_nor(instruction),
-                    0b000111 => self.op_srav(instruction),
-                    0b000110 => self.op_srlv(instruction),
-                    0b011001 => self.op_multu(instruction),
-                    0b100110 => self.op_xor(instruction),
-                    0b001101 => self.op_break(instruction),
-                    0b011000 => self.op_mult(instruction),
-                    0b100010 => self.op_sub(instruction),
+                    0b000000 => self.opSll(instruction),
+                    0b100101 => self.opOr(instruction),
+                    0b100001 => self.opAddu(instruction),
+                    0b101011 => self.opSltu(instruction),
+                    0b001000 => self.opJr(instruction),
+                    0b100100 => self.opAnd(instruction),
+                    0b100000 => self.opAdd(instruction),
+                    0b001001 => self.opJalr(instruction),
+                    0b100011 => self.opSubu(instruction),
+                    0b000011 => self.opSra(instruction),
+                    0b011010 => self.opDiv(instruction),
+                    0b010010 => self.opMflo(instruction),
+                    0b000010 => self.opSrl(instruction),
+                    0b011011 => self.opDivu(instruction),
+                    0b010000 => self.opMfhi(instruction),
+                    0b101010 => self.opSlt(instruction),
+                    0b001100 => self.opSyscall(instruction),
+                    0b010011 => self.opMtlo(instruction),
+                    0b010001 => self.opMthi(instruction),
+                    0b000100 => self.opSllv(instruction),
+                    0b100111 => self.opNor(instruction),
+                    0b000111 => self.opSrav(instruction),
+                    0b000110 => self.opSrlv(instruction),
+                    0b011001 => self.opMultu(instruction),
+                    0b100110 => self.opXor(instruction),
+                    0b001101 => self.opBreak(instruction),
+                    0b011000 => self.opMult(instruction),
+                    0b100010 => self.opSub(instruction),
                     else => unreachable,
                 }
             },
             0b010000 => {
                 switch (instruction.cop0_move.sub) {
-                    0b00100 => self.op_mtc0(instruction),
-                    0b00000 => self.op_mfc0(instruction),
-                    0b10000 => self.op_rfe(instruction),
+                    0b00100 => self.opMtc0(instruction),
+                    0b00000 => self.opMfc0(instruction),
+                    0b10000 => self.opRfe(instruction),
 
                     else => unreachable,
                 }
@@ -198,42 +198,42 @@ pub const Cpu = struct {
             0b010010 => {
                 std.debug.panic("Unhandled instruction cop2", .{});
             },
-            0b001111 => self.op_lui(instruction),
-            0b001101 => self.op_ori(instruction),
-            0b101011 => self.op_sw(instruction),
-            0b001001 => self.op_addiu(instruction),
-            0b000101 => self.op_bne(instruction),
-            0b001000 => self.op_addi(instruction),
-            0b100011 => self.op_lw(instruction),
-            0b101001 => self.op_sh(instruction),
-            0b001100 => self.op_andi(instruction),
-            0b101000 => self.op_sb(instruction),
-            0b100000 => self.op_lb(instruction),
-            0b000100 => self.op_beq(instruction),
-            0b000111 => self.op_bgtz(instruction),
-            0b000110 => self.op_blez(instruction),
-            0b100100 => self.op_lbu(instruction),
+            0b001111 => self.opLui(instruction),
+            0b001101 => self.opOri(instruction),
+            0b101011 => self.opSw(instruction),
+            0b001001 => self.opAddiu(instruction),
+            0b000101 => self.opBne(instruction),
+            0b001000 => self.opAddi(instruction),
+            0b100011 => self.opLw(instruction),
+            0b101001 => self.opSh(instruction),
+            0b001100 => self.opAndi(instruction),
+            0b101000 => self.opSb(instruction),
+            0b100000 => self.opLb(instruction),
+            0b000100 => self.opBeq(instruction),
+            0b000111 => self.opBgtz(instruction),
+            0b000110 => self.opBlez(instruction),
+            0b100100 => self.opLbu(instruction),
             0b000001 => {
                 switch (instruction.i.rt) {
-                    0b00000 => self.op_bltz(instruction),
-                    0b00001 => self.op_bgez(instruction),
-                    0b10000 => self.op_bltzal(instruction),
-                    0b10001 => self.op_bgezal(instruction),
+                    0b00000 => self.opBltz(instruction),
+                    0b00001 => self.opBgez(instruction),
+                    0b10000 => self.opBltzal(instruction),
+                    0b10001 => self.opBgezal(instruction),
                     else => unreachable,
                 }
             },
-            0b001010 => self.op_slti(instruction),
-            0b001011 => self.op_sltiu(instruction),
-            0b100101 => self.op_lhu(instruction),
-            0b100001 => self.op_lh(instruction),
-            0b001110 => self.op_xori(instruction),
-            0b100010 => self.op_lwl(instruction),
-            0b100110 => self.op_lwr(instruction),
-            0b101010 => self.op_swl(instruction),
-            0b101110 => self.op_swr(instruction),
+            0b001010 => self.opSlti(instruction),
+            0b001011 => self.opSltiu(instruction),
+            0b100101 => self.opLhu(instruction),
+            0b100001 => self.opLh(instruction),
+            0b001110 => self.opXori(instruction),
+            0b100010 => self.opLwl(instruction),
+            0b100110 => self.opLwr(instruction),
+            0b101010 => self.opSwl(instruction),
+            0b101110 => self.opSwr(instruction),
 
-            0b000010 => self.op_j(instruction),
-            0b000011 => self.op_jal(instruction),
+            0b000010 => self.opJ(instruction),
+            0b000011 => self.opJal(instruction),
             else => unreachable,
         }
 
@@ -286,7 +286,7 @@ pub const Cpu = struct {
     }
 
     // cop0
-    fn op_mtc0(self: *Self, instruction: Instruction) void {
+    fn opMtc0(self: *Self, instruction: Instruction) void {
         const c = instruction.cop0_move;
 
         const value = self.registers[c.rt];
@@ -294,7 +294,7 @@ pub const Cpu = struct {
         self.setCp0Reg(c.rd, c.sel, value);
     }
 
-    fn op_mfc0(self: *Self, instruction: Instruction) void {
+    fn opMfc0(self: *Self, instruction: Instruction) void {
         const c = instruction.cop0_move;
 
         const value = self.getCp0Reg(c.rd, c.sel);
@@ -302,14 +302,14 @@ pub const Cpu = struct {
         self.setRegDelayed(c.rt, value);
     }
 
-    fn op_rfe(self: *Self, _: Instruction) void {
+    fn opRfe(self: *Self, _: Instruction) void {
         const mode = self.getCp0Reg(12, 0) & 0x3f;
 
         const new_sr = (self.getCp0Reg(12, 0) & ~@as(u32, 0x3f)) | (mode >> 2);
         self.setCp0Reg(12, 0, new_sr);
     }
 
-    fn op_srav(self: *Self, instruction: Instruction) void {
+    fn opSrav(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = @as(i32, @bitCast(self.getReg(r.rt))) >> @as(u5, @truncate(self.getReg(r.rs)));
@@ -317,7 +317,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, @bitCast(value));
     }
 
-    fn op_srlv(self: *Self, instruction: Instruction) void {
+    fn opSrlv(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rt) >> @as(u5, @truncate(self.getReg(r.rs)));
@@ -326,7 +326,7 @@ pub const Cpu = struct {
     }
 
     // i-type
-    fn op_lui(self: *Self, instruction: Instruction) void {
+    fn opLui(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: u32 = @as(u32, i.imm) << 16;
@@ -334,7 +334,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_ori(self: *Self, instruction: Instruction) void {
+    fn opOri(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: u32 = self.getReg(i.rs) | i.imm;
@@ -342,7 +342,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_sw(self: *Self, instruction: Instruction) void {
+    fn opSw(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
@@ -360,7 +360,7 @@ pub const Cpu = struct {
         self.bus.write32(address, value);
     }
 
-    fn op_addiu(self: *Self, instruction: Instruction) void {
+    fn opAddiu(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value = self.getReg(i.rs) +% utils.signExtend16(i.imm);
@@ -368,7 +368,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_bne(self: *Self, instruction: Instruction) void {
+    fn opBne(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         if (self.getReg(i.rs) != self.getReg(i.rt)) {
@@ -376,7 +376,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_addi(self: *Self, instruction: Instruction) void {
+    fn opAddi(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const rs_val: i32 = @bitCast(self.getReg(i.rs));
@@ -392,7 +392,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, @bitCast(result[0]));
     }
 
-    fn op_lw(self: *Self, instruction: Instruction) void {
+    fn opLw(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
@@ -410,7 +410,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, value);
     }
 
-    fn op_sh(self: *Self, instruction: Instruction) void {
+    fn opSh(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
@@ -428,7 +428,7 @@ pub const Cpu = struct {
         self.bus.write16(address, @truncate(value));
     }
 
-    fn op_andi(self: *Self, instruction: Instruction) void {
+    fn opAndi(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: u32 = self.getReg(i.rs) & i.imm;
@@ -436,7 +436,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_sb(self: *Self, instruction: Instruction) void {
+    fn opSb(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
@@ -450,7 +450,7 @@ pub const Cpu = struct {
         self.bus.write8(address, @truncate(value));
     }
 
-    fn op_lb(self: *Self, instruction: Instruction) void {
+    fn opLb(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
@@ -464,7 +464,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, value);
     }
 
-    fn op_beq(self: *Self, instruction: Instruction) void {
+    fn opBeq(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         if (self.getReg(i.rs) == self.getReg(i.rt)) {
@@ -472,7 +472,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_bgtz(self: *Self, instruction: Instruction) void {
+    fn opBgtz(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: i32 = @bitCast(self.getReg(i.rs));
@@ -482,7 +482,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_blez(self: *Self, instruction: Instruction) void {
+    fn opBlez(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: i32 = @bitCast(self.getReg(i.rs));
@@ -492,7 +492,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_lbu(self: *Self, instruction: Instruction) void {
+    fn opLbu(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
@@ -506,7 +506,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, value);
     }
 
-    fn op_bltz(self: *Self, instruction: Instruction) void {
+    fn opBltz(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: i32 = @bitCast(self.getReg(i.rs));
@@ -516,7 +516,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_bgez(self: *Self, instruction: Instruction) void {
+    fn opBgez(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: i32 = @bitCast(self.getReg(i.rs));
@@ -526,7 +526,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_bltzal(self: *Self, instruction: Instruction) void {
+    fn opBltzal(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: i32 = @bitCast(self.getReg(i.rs));
@@ -538,7 +538,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_bgezal(self: *Self, instruction: Instruction) void {
+    fn opBgezal(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: i32 = @bitCast(self.getReg(i.rs));
@@ -550,7 +550,7 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_slti(self: *Self, instruction: Instruction) void {
+    fn opSlti(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: u32 = @intFromBool(@as(i32, @bitCast(self.getReg(i.rs))) < utils.signExtend16(i.imm));
@@ -558,7 +558,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_sltiu(self: *Self, instruction: Instruction) void {
+    fn opSltiu(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: u32 = @intFromBool(self.getReg(i.rs) < utils.signExtend16(i.imm));
@@ -566,7 +566,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_lhu(self: *Self, instruction: Instruction) void {
+    fn opLhu(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
@@ -579,7 +579,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, value);
     }
 
-    fn op_lh(self: *Self, instruction: Instruction) void {
+    fn opLh(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
@@ -592,7 +592,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, @bitCast(value));
     }
 
-    fn op_xori(self: *Self, instruction: Instruction) void {
+    fn opXori(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
         const value: u32 = self.getReg(i.rs) ^ i.imm;
@@ -600,7 +600,7 @@ pub const Cpu = struct {
         self.setReg(i.rt, value);
     }
 
-    fn op_lwl(self: *Self, instruction: Instruction) void {
+    fn opLwl(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
@@ -631,7 +631,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, result);
     }
 
-    fn op_lwr(self: *Self, instruction: Instruction) void {
+    fn opLwr(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring load while cache is isolated\n", .{});
             return;
@@ -659,7 +659,7 @@ pub const Cpu = struct {
         self.setRegDelayed(i.rt, result);
     }
 
-    fn op_swl(self: *Self, instruction: Instruction) void {
+    fn opSwl(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             // std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
@@ -684,7 +684,7 @@ pub const Cpu = struct {
         self.bus.write32(aligned_address, result);
     }
 
-    fn op_swr(self: *Self, instruction: Instruction) void {
+    fn opSwr(self: *Self, instruction: Instruction) void {
         if (self.isCacheIsolated()) {
             std.debug.print("Ignoring store while cache is isolated\n", .{});
             return;
@@ -710,7 +710,7 @@ pub const Cpu = struct {
     }
 
     // r-type
-    fn op_sll(self: *Self, instruction: Instruction) void {
+    fn opSll(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rt) << r.sa;
@@ -718,7 +718,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_or(self: *Self, instruction: Instruction) void {
+    fn opOr(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rs) | self.getReg(r.rt);
@@ -726,7 +726,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_addu(self: *Self, instruction: Instruction) void {
+    fn opAddu(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rs) +% self.getReg(r.rt);
@@ -734,7 +734,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_sltu(self: *Self, instruction: Instruction) void {
+    fn opSltu(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rs) < self.getReg(r.rt);
@@ -742,14 +742,14 @@ pub const Cpu = struct {
         self.setReg(r.rd, if (value) 1 else 0);
     }
 
-    fn op_jr(self: *Self, instruction: Instruction) void {
+    fn opJr(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         self.next_pc = self.getReg(r.rs);
         self.is_branch = true;
     }
 
-    fn op_and(self: *Self, instruction: Instruction) void {
+    fn opAnd(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rs) & self.getReg(r.rt);
@@ -757,7 +757,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_add(self: *Self, instruction: Instruction) void {
+    fn opAdd(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const rs_val: i32 = @bitCast(self.getReg(r.rs));
@@ -773,7 +773,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, @bitCast(result[0]));
     }
 
-    fn op_jalr(self: *Self, instruction: Instruction) void {
+    fn opJalr(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         self.setReg(r.rd, self.next_pc);
@@ -781,7 +781,7 @@ pub const Cpu = struct {
         self.is_branch = true;
     }
 
-    fn op_subu(self: *Self, instruction: Instruction) void {
+    fn opSubu(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rs) -% self.getReg(r.rt);
@@ -789,7 +789,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_sra(self: *Self, instruction: Instruction) void {
+    fn opSra(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = @as(i32, @bitCast(self.getReg(r.rt))) >> r.sa;
@@ -797,7 +797,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, @bitCast(value));
     }
 
-    fn op_div(self: *Self, instruction: Instruction) void {
+    fn opDiv(self: *Self, instruction: Instruction) void {
         // TODO: division delay
 
         const r = instruction.r;
@@ -822,13 +822,13 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_mflo(self: *Self, instruction: Instruction) void {
+    fn opMflo(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         self.setReg(r.rd, self.lo);
     }
 
-    fn op_srl(self: *Self, instruction: Instruction) void {
+    fn opSrl(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rt) >> r.sa;
@@ -836,7 +836,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, @bitCast(value));
     }
 
-    fn op_divu(self: *Self, instruction: Instruction) void {
+    fn opDivu(self: *Self, instruction: Instruction) void {
         // TODO: division delay..?
 
         const r = instruction.r;
@@ -854,13 +854,13 @@ pub const Cpu = struct {
         }
     }
 
-    fn op_mfhi(self: *Self, instruction: Instruction) void {
+    fn opMfhi(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         self.setReg(r.rd, self.hi);
     }
 
-    fn op_slt(self: *Self, instruction: Instruction) void {
+    fn opSlt(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = @as(i32, @bitCast(self.getReg(r.rs))) < @as(i32, @bitCast(self.getReg(r.rt)));
@@ -868,23 +868,23 @@ pub const Cpu = struct {
         self.setReg(r.rd, if (value) 1 else 0);
     }
 
-    fn op_syscall(self: *Self, _: Instruction) void {
+    fn opSyscall(self: *Self, _: Instruction) void {
         self.exception(.syscall);
     }
 
-    fn op_mtlo(self: *Self, instruction: Instruction) void {
+    fn opMtlo(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         self.lo = self.getReg(r.rs);
     }
 
-    fn op_mthi(self: *Self, instruction: Instruction) void {
+    fn opMthi(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         self.hi = self.getReg(r.rs);
     }
 
-    fn op_sllv(self: *Self, instruction: Instruction) void {
+    fn opSllv(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rt) << @as(u5, @truncate(self.getReg(r.rs)));
@@ -892,7 +892,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_nor(self: *Self, instruction: Instruction) void {
+    fn opNor(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = ~(self.getReg(r.rs) | self.getReg(r.rt));
@@ -900,7 +900,7 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_multu(self: *Self, instruction: Instruction) void {
+    fn opMultu(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const a: u64 = self.getReg(r.rs);
@@ -912,7 +912,7 @@ pub const Cpu = struct {
         self.lo = @truncate(value);
     }
 
-    fn op_xor(self: *Self, instruction: Instruction) void {
+    fn opXor(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const value = self.getReg(r.rs) ^ self.getReg(r.rt);
@@ -920,11 +920,11 @@ pub const Cpu = struct {
         self.setReg(r.rd, value);
     }
 
-    fn op_break(self: *Self, _: Instruction) void {
+    fn opBreak(self: *Self, _: Instruction) void {
         self.exception(.brk);
     }
 
-    fn op_mult(self: *Self, instruction: Instruction) void {
+    fn opMult(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const a: i64 = @as(i32, @bitCast(self.getReg(r.rs)));
@@ -936,7 +936,7 @@ pub const Cpu = struct {
         self.lo = @truncate(value);
     }
 
-    fn op_sub(self: *Self, instruction: Instruction) void {
+    fn opSub(self: *Self, instruction: Instruction) void {
         const r = instruction.r;
 
         const rs_val: i32 = @bitCast(self.getReg(r.rs));
@@ -953,14 +953,14 @@ pub const Cpu = struct {
     }
 
     // j-type
-    fn op_j(self: *Self, instruction: Instruction) void {
+    fn opJ(self: *Self, instruction: Instruction) void {
         const j = instruction.j;
 
         self.next_pc = self.pc & 0xf000_0000 | @as(u32, j.address) << 2;
         self.is_branch = true;
     }
 
-    fn op_jal(self: *Self, instruction: Instruction) void {
+    fn opJal(self: *Self, instruction: Instruction) void {
         const j = instruction.j;
 
         self.setReg(31, self.next_pc);

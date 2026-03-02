@@ -3,6 +3,9 @@ const std = @import("std");
 const sokol = @import("sokol");
 const sg = sokol.gfx;
 
+const Point = @import("gpu.zig").Point;
+const Color = @import("gpu.zig").Color;
+
 pub const Vertex = extern struct {
     x: f32,
     y: f32,
@@ -123,30 +126,28 @@ pub const Renderer = struct {
         self.vertex_count = 0;
     }
 
-    pub fn push_shaded_triangle(
+    pub fn pushShadedTriangle(
         self: *Self,
-        x1: i16,
-        y1: i16,
-        c1: u32,
-        x2: i16,
-        y2: i16,
-        c2: u32,
-        x3: i16,
-        y3: i16,
-        c3: u32,
+        p1: Point,
+        c1: Color,
+        p2: Point,
+        c2: Color,
+        p3: Point,
+        c3: Color,
     ) void {
         if (self.vertex_count + 3 > self.vertex_buffer.len) return;
 
-        const fx1 = (@as(f32, @floatFromInt(x1)) / 512.0) - 1.0;
-        const fy1 = 1.0 - (@as(f32, @floatFromInt(y1)) / 256.0);
-        const fx2 = (@as(f32, @floatFromInt(x2)) / 512.0) - 1.0;
-        const fy2 = 1.0 - (@as(f32, @floatFromInt(y2)) / 256.0);
-        const fx3 = (@as(f32, @floatFromInt(x3)) / 512.0) - 1.0;
-        const fy3 = 1.0 - (@as(f32, @floatFromInt(y3)) / 256.0);
+        const fx1 = (@as(f32, @floatFromInt(p1.x)) / 512.0) - 1.0;
+        const fy1 = 1.0 - (@as(f32, @floatFromInt(p1.y)) / 256.0);
+        const fx2 = (@as(f32, @floatFromInt(p2.x)) / 512.0) - 1.0;
+        const fy2 = 1.0 - (@as(f32, @floatFromInt(p2.y)) / 256.0);
+        const fx3 = (@as(f32, @floatFromInt(p3.x)) / 512.0) - 1.0;
+        const fy3 = 1.0 - (@as(f32, @floatFromInt(p3.y)) / 256.0);
 
-        self.vertex_buffer[self.vertex_count] = .{ .x = fx1, .y = fy1, .r = @truncate(c1), .g = @truncate(c1 >> 8), .b = @truncate(c1 >> 16), .a = 255 };
-        self.vertex_buffer[self.vertex_count + 1] = .{ .x = fx2, .y = fy2, .r = @truncate(c2), .g = @truncate(c2 >> 8), .b = @truncate(c2 >> 16), .a = 255 };
-        self.vertex_buffer[self.vertex_count + 2] = .{ .x = fx3, .y = fy3, .r = @truncate(c3), .g = @truncate(c3 >> 8), .b = @truncate(c3 >> 16), .a = 255 };
+        self.vertex_buffer[self.vertex_count] = .{ .x = fx1, .y = fy1, .r = c1.r, .g = c1.g, .b = c1.b, .a = 255 };
+        self.vertex_buffer[self.vertex_count + 1] = .{ .x = fx2, .y = fy2, .r = c2.r, .g = c2.g, .b = c2.b, .a = 255 };
+        self.vertex_buffer[self.vertex_count + 2] = .{ .x = fx3, .y = fy3, .r = c3.r, .g = c3.g, .b = c3.b, .a = 255 };
+
         self.vertex_count += 3;
     }
 };

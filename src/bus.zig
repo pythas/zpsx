@@ -80,11 +80,6 @@ pub const Bus = struct {
     pub fn read32(self: *Self, virtual_address: u32) u32 {
         const address = physicalAddress(virtual_address);
 
-        // std.debug.print(
-        //     "read32: V:0x{x:0>8} P:0x{x:0>8}\n",
-        //     .{ virtual_address, address },
-        // );
-
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read32(address),
             memory_map.irq_control.start...memory_map.irq_control.end => 0x00,
@@ -104,11 +99,6 @@ pub const Bus = struct {
 
         const address = physicalAddress(virtual_address);
 
-        // std.debug.print(
-        //     "write32: V:0x{x:0>8} P:0x{x:0>8} VAL:0x{x:0>8}\n",
-        //     .{ virtual_address, address, value },
-        // );
-
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write32(address, value),
             memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write32 to IRQ_CONTROL\n", .{}),
@@ -124,11 +114,6 @@ pub const Bus = struct {
 
     pub fn read16(self: *Self, virtual_address: u32) u16 {
         const address = physicalAddress(virtual_address);
-
-        // std.debug.print(
-        //     "read16: V:0x{x:0>8} P:0x{x:0>8}\n",
-        //     .{ virtual_address, address },
-        // );
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read16(address),
@@ -149,11 +134,6 @@ pub const Bus = struct {
 
         const address = physicalAddress(virtual_address);
 
-        // std.debug.print(
-        //     "write16: V:0x{x:0>8} P:0x{x:0>8} VAL:0x{x:0>8}\n",
-        //     .{ virtual_address, address, value },
-        // );
-
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
             memory_map.irq_control.start...memory_map.irq_control.end => std.debug.print("bus: Unhandled write16 to IRQ_CONTROL\n", .{}),
@@ -168,11 +148,6 @@ pub const Bus = struct {
     pub fn read8(self: *Self, virtual_address: u32) u8 {
         const address = physicalAddress(virtual_address);
 
-        // std.debug.print(
-        //     "read8: V:0x{x:0>8} P:0x{x:0>8}\n",
-        //     .{ virtual_address, address },
-        // );
-
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read8(address),
             memory_map.exp1.start...memory_map.exp1.end => 0xff,
@@ -185,11 +160,6 @@ pub const Bus = struct {
         // TODO: panic at unaligned store
 
         const address = physicalAddress(virtual_address);
-
-        // std.debug.print(
-        //     "write8: V:0x{x:0>8} P:0x{x:0>8} VAL:0x{x:0>8}\n",
-        //     .{ virtual_address, address, value },
-        // );
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write8(address, value),
