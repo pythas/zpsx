@@ -6,6 +6,8 @@ const Bus = @import("bus.zig").Bus;
 const Instruction = @import("cpu.zig").Instruction;
 
 pub const Emulator = struct {
+    allocator: std.mem.Allocator,
+
     bus: Bus,
     cpu: Cpu,
     is_paused: bool,
@@ -21,11 +23,14 @@ pub const Emulator = struct {
     ) !*Self {
         const self = try allocator.create(Self);
 
-        self.bus = try Bus.init(allocator);
-        self.cpu = Cpu.init(&self.bus);
-        self.is_paused = false;
-        self.breakpoints = .init(allocator);
-        self.temp_breakpoint = null;
+        self.* = .{
+            .allocator = allocator,
+            .bus = try Bus.init(allocator),
+            .cpu = Cpu.init(&self.bus),
+            .is_paused = false,
+            .breakpoints = .init(allocator),
+            .temp_breakpoint = null,
+        };
 
         for (breakpoints) |breakpoint| {
             try self.breakpoints.put(breakpoint, {});
@@ -43,11 +48,11 @@ pub const Emulator = struct {
         return self;
     }
 
-    pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Self) void {
         self.bus.deinit();
         self.cpu.deinit();
         self.breakpoints.deinit();
-        allocator.destroy(self);
+        self.allocator.destroy(self);
     }
 
     pub fn step(self: *Self) void {

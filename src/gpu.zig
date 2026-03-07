@@ -273,6 +273,8 @@ pub const Gpu = struct {
 
     renderer: Renderer,
 
+    vram: []u16,
+
     gpustat: GpuStatusRegister,
 
     texture_rect_x_flip: bool,
@@ -309,9 +311,15 @@ pub const Gpu = struct {
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) !Self {
+        const vram = try allocator.alloc(u16, 1024 * 512);
+        @memset(vram, 0);
+
         return .{
             .allocator = allocator,
+
             .renderer = try Renderer.init(allocator),
+
+            .vram = vram,
 
             .gpustat = @bitCast(@as(u32, 0x1c802000)),
 
@@ -389,6 +397,21 @@ pub const Gpu = struct {
             },
             else => std.debug.panic("gpu: write {x} to {x}\n", .{ value, address }),
         }
+    }
+
+    pub fn putPixel(self: *Gpu, x: i16, y: i16, r: u8, g: u8, b: u8) void {
+        if (x < self.drawing_area_left or x > self.drawing_area_right or
+            y < self.drawing_area_top or y > self.drawing_area_bottom) return;
+
+        const index = @as(usize, @intCast(y)) * 1024 + @as(usize, @intCast(x));
+
+        const r5 = @as(u16, r >> 3);
+        const g5 = @as(u16, g >> 3);
+        const b5 = @as(u16, b >> 3);
+
+        const color: u16 = (1 << 15) | (b5 << 10) | (g5 << 5) | r5;
+
+        self.vram[index] = color;
     }
 
     // GP0
@@ -514,8 +537,8 @@ pub const Gpu = struct {
         const p3 = Point.fromWord(v3).offset(dx, dy);
         const p4 = Point.fromWord(v4).offset(dx, dy);
 
-        self.renderer.pushShadedTriangle(p1, color, p2, color, p3, color);
-        self.renderer.pushShadedTriangle(p2, color, p3, color, p4, color);
+        self.renderer.pushShadedTriangle(self, p1, color, p2, color, p3, color);
+        self.renderer.pushShadedTriangle(self, p2, color, p3, color, p4, color);
     }
 
     fn gp0TexturedQuad(
@@ -530,8 +553,30 @@ pub const Gpu = struct {
         v4: u32,
         uv4: u32,
     ) void {
-        _ = self;
-        std.debug.print("gpu: draw textured quad. C1:{x} V1:{x} UV1:{x} V2:{x} UV2:{x} V3:{x} UV3:{x} V4:{x} UV4:{x}\n", .{ c1, v1, uv1, v2, uv2, v3, uv3, v4, uv4 });
+        _ = c1;
+        _ = uv1;
+        _ = uv2;
+        _ = uv3;
+        _ = uv4;
+
+        const dx = self.drawing_x_offset;
+        const dy = self.drawing_y_offset;
+
+        const p1 = Point.fromWord(v1).offset(dx, dy);
+        const p2 = Point.fromWord(v2).offset(dx, dy);
+        const p3 = Point.fromWord(v3).offset(dx, dy);
+        const p4 = Point.fromWord(v4).offset(dx, dy);
+
+        const color = Color{ .r = 0x80, .g = 0, .b = 0 };
+
+        _ = color;
+        _ = p1;
+        _ = p2;
+        _ = p3;
+        _ = p4;
+
+        // self.renderer.pushShadedTriangle(p1, color, p2, color, p3, color);
+        // self.renderer.pushShadedTriangle(p2, color, p3, color, p4, color);
     }
 
     fn gp0ShadedQuad(
@@ -558,8 +603,17 @@ pub const Gpu = struct {
         const color3 = Color.fromWord(c3);
         const color4 = Color.fromWord(c4);
 
-        self.renderer.pushShadedTriangle(p1, color1, p2, color2, p3, color3);
-        self.renderer.pushShadedTriangle(p2, color2, p3, color3, p4, color4);
+        _ = color1;
+        _ = color2;
+        _ = color3;
+        _ = color4;
+        _ = p1;
+        _ = p2;
+        _ = p3;
+        _ = p4;
+
+        // self.renderer.pushShadedTriangle(p1, color1, p2, color2, p3, color3);
+        // self.renderer.pushShadedTriangle(p2, color2, p3, color3, p4, color4);
     }
 
     fn gp0ShadedTriangle(
@@ -582,7 +636,7 @@ pub const Gpu = struct {
         const color2 = Color.fromWord(c2);
         const color3 = Color.fromWord(c3);
 
-        self.renderer.pushShadedTriangle(p1, color1, p2, color2, p3, color3);
+        self.renderer.pushShadedTriangle(self, p1, color1, p2, color2, p3, color3);
     }
 
     fn gp0LoadImage(self: *Self, word1: u32, word2: u32) void {

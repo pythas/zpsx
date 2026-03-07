@@ -42,12 +42,17 @@ const AppState = struct {
             .ui = UiState.init(),
             .register_window = RegisterWindow.init(),
             .disassembly_window = DisassemblyWindow.init(),
-            .vram_window = VramWindow.init(),
+            .vram_window = try VramWindow.init(allocator),
 
             .pass_action = .{},
         };
 
         return self;
+    }
+
+    fn deinit(self: *Self) void {
+        self.emulator.deinit();
+        self.vram_window.deinit();
     }
 
     fn reset(self: *AppState) !void {
@@ -147,7 +152,9 @@ export fn event(ev: [*c]const sapp.Event) void {
 
 export fn cleanup() void {
     const allocator = state.allocator;
-    state.emulator.deinit(allocator);
+
+    state.deinit();
+
     allocator.destroy(state);
 
     simgui.shutdown();
