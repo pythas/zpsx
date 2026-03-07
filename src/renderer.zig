@@ -50,10 +50,15 @@ pub const Renderer = struct {
         var points = [3]Point{ p1, p2, p3 };
         var colors = [3]Color{ c1, c2, c3 };
 
-        if (edgeFunction(points[0], points[1], points[2]) < 0) {
+        var area = edgeFunction(points[0], points[1], points[2]);
+
+        if (area < 0) {
             std.mem.swap(Point, &points[1], &points[2]);
             std.mem.swap(Color, &colors[1], &colors[2]);
+            area = -area;
         }
+
+        if (area == 0) return;
 
         var bbx = Bbx.fromPoints(&points);
 
@@ -79,10 +84,22 @@ pub const Renderer = struct {
                 const w1 = edgeFunction(points[2], points[0], p);
                 const w2 = edgeFunction(points[0], points[1], p);
 
-                const is_inside = w0 >= 0 and w1 >= 0 and w2 >= 0;
+                if (w0 >= 0 and w1 >= 0 and w2 >= 0) {
+                    const area_64: i64 = area;
 
-                if (is_inside) {
-                    gpu.putPixel(@as(i16, @intCast(x)), @as(i16, @intCast(y)), c1.r, c1.g, c1.b);
+                    // calc barycentric coords
+                    // shift up by 12 bits simulating fixed points representation
+                    // NOTE: this is not hardware accurate . implement DDA
+                    const w0_fixed = @divTrunc(@as(i64, w0) << 12, area_64);
+                    const w1_fixed = @divTrunc(@as(i64, w1) << 12, area_64);
+                    const w2_fixed = @divTrunc(@as(i64, w2) << 12, area_64);
+
+                    // interpolate using weights
+                    const r = (w0_fixed * colors[0].r + w1_fixed * colors[1].r + w2_fixed * colors[2].r) >> 12;
+                    const g = (w0_fixed * colors[0].g + w1_fixed * colors[1].g + w2_fixed * colors[2].g) >> 12;
+                    const b = (w0_fixed * colors[0].b + w1_fixed * colors[1].b + w2_fixed * colors[2].b) >> 12;
+
+                    gpu.putPixel(@as(i16, @intCast(x)), @as(i16, @intCast(y)), @as(u8, @intCast(r)), @as(u8, @intCast(g)), @as(u8, @intCast(b)));
                 }
             }
         }
