@@ -20,9 +20,6 @@ pub const Cdrom = struct {
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-
-            // The BIOS expects the drive to be ready when it boots.
-            // Parameter FIFO empty (bit 3) and Parameter write ready (bit 4) should be 1.
             .status = @bitCast(@as(u8, 0x18)),
         };
     }
@@ -40,9 +37,7 @@ pub const Cdrom = struct {
     pub fn write8(self: *Self, address: u32, value: u8) void {
         switch (address) {
             0x00 => {
-                // Address 0x00 only overwrites the index (bits 0-1).
-                // The rest of the bits in this register are Read-Only status flags!
-                self.status.index = @truncate(value);
+                self.status.index = @truncate(value); // only writeable bit
             },
             else => {
                 std.debug.print("cdrom: Unhandled write8 to offset {x} with value {x} (Bank: {d})\n", .{ address, value, self.status.index });
