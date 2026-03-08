@@ -94,12 +94,6 @@ pub const Emulator = struct {
         for (0..100000) |_| {
             self.step();
 
-            if (self.cpu.fatal_error) |err| {
-                std.debug.print("EMULATOR HALTED: {s}\n", .{err});
-                self.is_paused = true;
-                break;
-            }
-
             if (self.breakpoints.contains(self.cpu.pc) or (self.temp_breakpoint != null and self.cpu.pc == self.temp_breakpoint.?)) {
                 self.is_paused = true;
                 self.temp_breakpoint = null;
