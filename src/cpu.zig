@@ -52,10 +52,17 @@ const Exception = enum(u8) {
     cop = 0x0b,
 };
 
+const LoadDelaySlot = struct {
+    reg: u5,
+    value: u32,
+};
+
 pub const Cpu = struct {
     pc: u32,
     next_pc: u32,
     current_pc: u32,
+
+    cycles: u32,
 
     is_branch: bool,
     is_delay_slot: bool,
@@ -65,7 +72,9 @@ pub const Cpu = struct {
     hi: u32,
     lo: u32,
 
-    load_delay: struct { reg: u5, value: u32 },
+    load: LoadDelaySlot,
+    next_load: LoadDelaySlot,
+
     current_write: struct { reg: u5, value: u32 },
 
     bus: *Bus,
@@ -79,13 +88,15 @@ pub const Cpu = struct {
             .pc = pc,
             .next_pc = pc +% 4,
             .current_pc = pc,
+            .cycles = 0,
             .is_branch = false,
             .is_delay_slot = false,
             .registers = [_]u32{0xdeadfeed} ** 32,
             .cp0_registers = [_][8]u32{[_]u32{0} ** 8} ** 32,
             .hi = 0xdeadfeed,
             .lo = 0xdeadfeed,
-            .load_delay = .{ .reg = 0, .value = 0 },
+            .load = .{ .reg = 0, .value = 0 },
+            .next_load = .{ .reg = 0, .value = 0 },
             .current_write = .{ .reg = 0, .value = 0 },
             .bus = bus,
         };
@@ -104,7 +115,7 @@ pub const Cpu = struct {
     }
 
     fn setRegDelayed(self: *Self, index: u5, value: u32) void {
-        self.load_delay = .{ .reg = index, .value = value };
+        self.next_load = .{ .reg = index, .value = value };
     }
 
     fn getCp0Reg(self: *Self, rd: u5, sel: u3) u32 {
@@ -128,6 +139,8 @@ pub const Cpu = struct {
 
         self.current_pc = self.pc;
 
+        self.cycles += 1;
+
         // check alignment
         if (self.current_pc % 4 != 0) {
             self.exception(.load_address_misaligned);
@@ -137,8 +150,9 @@ pub const Cpu = struct {
         self.pc = self.next_pc;
         self.next_pc +%= 4;
 
-        const pending_load = self.load_delay;
-        self.load_delay = .{ .reg = 0, .value = 0 };
+        self.load = self.next_load;
+        self.next_load = .{ .reg = 0, .value = 0 };
+
         self.current_write = .{ .reg = 0, .value = 0 };
 
         self.is_delay_slot = self.is_branch;
@@ -237,9 +251,13 @@ pub const Cpu = struct {
         }
 
         // apply pending load
-        if (pending_load.reg != 0) {
-            self.registers[pending_load.reg] = pending_load.value;
+        if (self.load.reg != 0) {
+            self.registers[self.load.reg] = self.load.value;
         }
+
+        // if (pending_load.reg != 0) {
+        //     self.registers[pending_load.reg] = pending_load.value;
+        // }
 
         // apply current write
         if (self.current_write.reg != 0) {
@@ -269,7 +287,7 @@ pub const Cpu = struct {
         self.setCp0Reg(13, 0, cause_code << 2);
 
         // save current pc in epc
-        self.setCp0Reg(14, 0, self.pc);
+        self.setCp0Reg(14, 0, self.current_pc);
 
         if (self.is_delay_slot) {
             // if the exception happened in a delay slot, we need to adjust the EPC to point to the branch instruction
@@ -458,7 +476,7 @@ pub const Cpu = struct {
         const i = instruction.i;
 
         const address = self.getReg(i.rs) +% utils.signExtend16(i.imm);
-        const value = utils.signExtend16(@intCast(self.bus.read8(address)));
+        const value = utils.signExtend8(self.bus.read8(address));
 
         self.setRegDelayed(i.rt, value);
     }
@@ -614,8 +632,8 @@ pub const Cpu = struct {
 
         // bypass load delay restriction
         var current_value = self.getReg(i.rt);
-        if (self.load_delay.reg == i.rt) {
-            current_value = self.load_delay.value;
+        if (self.load.reg == i.rt) {
+            current_value = self.load.value;
         }
 
         // shift and merge based on byte offset
@@ -643,8 +661,8 @@ pub const Cpu = struct {
         const aligned_word = self.bus.read32(aligned_address);
 
         var current_value = self.getReg(i.rt);
-        if (self.load_delay.reg == i.rt) {
-            current_value = self.load_delay.value;
+        if (self.load.reg == i.rt) {
+            current_value = self.load.value;
         }
 
         const result: u32 = switch (address & 3) {

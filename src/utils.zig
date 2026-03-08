@@ -4,6 +4,10 @@ pub inline fn signExtend16(value: u16) u32 {
     return @bitCast(@as(i32, @as(i16, @bitCast(value))));
 }
 
+pub inline fn signExtend8(value: u8) u32 {
+    return @bitCast(@as(i32, @as(i8, @bitCast(value))));
+}
+
 pub fn readBinaryFile(allocator: std.mem.Allocator, path: []const u8) ![]u8 {
     var dir = std.fs.cwd();
     const file = try dir.openFile(path, .{ .mode = .read_only });
