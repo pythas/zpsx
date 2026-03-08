@@ -44,6 +44,7 @@ pub const Instruction = packed union {
 };
 
 const Exception = enum(u8) {
+    interrupt = 0x00,
     syscall = 0x08,
     brk = 0x09,
     overflow = 0x0c,
@@ -135,6 +136,15 @@ pub const Cpu = struct {
     }
 
     pub fn step(self: *Self) void {
+        // check interrupts
+        if (self.bus.intc.is_active()) {
+            const sr = self.getCp0Reg(12, 0);
+
+            if ((sr & 0x01) != 0 and (sr & 0x0400) != 0) {
+                self.exception(.interrupt);
+            }
+        }
+
         const instruction: Instruction = @bitCast(self.bus.read32(self.pc));
 
         self.current_pc = self.pc;

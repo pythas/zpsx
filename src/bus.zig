@@ -93,10 +93,10 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read32(address),
-            memory_map.intc.start...memory_map.intc.end => self.intc.read32(address - memory_map.intc.start),
+            memory_map.intc.start...memory_map.intc.end => @as(u32, self.intc.read16(address - memory_map.intc.start)),
             memory_map.dma.start...memory_map.dma.end => self.dma.read32(address - memory_map.dma.start),
             memory_map.timers.start...memory_map.timers.end => {
-                std.debug.print("bus: Unhandled read16 from IRQ_CONTROL\n", .{});
+                std.debug.print("bus: Unhandled read16 from TIMERS\n", .{});
                 return 0;
             },
             memory_map.gpu.start...memory_map.gpu.end => return self.gpu.read32(address - memory_map.gpu.start),
@@ -112,7 +112,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write32(address, value),
-            memory_map.intc.start...memory_map.intc.end => std.debug.print("bus: Unhandled write32 to IRQ_CONTROL\n", .{}),
+            memory_map.intc.start...memory_map.intc.end => self.intc.write16(address - memory_map.intc.start, @truncate(value)),
             memory_map.dma.start...memory_map.dma.end => self.dma.write32(address - memory_map.dma.start, value),
             memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write32 to TIMERS\n", .{}),
             memory_map.gpu.start...memory_map.gpu.end => self.gpu.write32(address - memory_map.gpu.start, value),
@@ -128,10 +128,7 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read16(address),
-            memory_map.intc.start...memory_map.intc.end => {
-                std.debug.print("bus: Unhandled read16 from IRQ_CONTROL\n", .{});
-                return 0;
-            },
+            memory_map.intc.start...memory_map.intc.end => self.intc.read16(address - memory_map.intc.start),
             memory_map.spu.start...memory_map.spu.end => {
                 // std.debug.print("bus: Unhandled read16 from SPU\n", .{});
                 return 0;
@@ -147,7 +144,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
-            memory_map.intc.start...memory_map.intc.end => std.debug.print("bus: Unhandled write16 to IRQ_CONTROL\n", .{}),
+            memory_map.intc.start...memory_map.intc.end => self.intc.write16(address - memory_map.intc.start, value),
             memory_map.timers.start...memory_map.timers.end => std.debug.print("bus: Unhandled write16 to TIMERS\n", .{}),
             memory_map.spu.start...memory_map.spu.end => {
                 // std.debug.print("bus: Unhandled write16 to SPU\n", .{});

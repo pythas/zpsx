@@ -13,8 +13,8 @@ pub const Interrupt = enum(u32) {
 };
 
 pub const InterruptController = struct {
-    status: u32,
-    mask: u32,
+    status: u16,
+    mask: u16,
 
     const Self = @This();
 
@@ -33,7 +33,7 @@ pub const InterruptController = struct {
         self.status |= (@as(u32, 1) << @intFromEnum(irq));
     }
 
-    pub fn read32(self: *Self, address: u32) u32 {
+    pub fn read16(self: *Self, address: u32) u16 {
         return switch (address) {
             0x00 => self.status,
             0x04 => self.mask,
@@ -41,7 +41,7 @@ pub const InterruptController = struct {
         };
     }
 
-    pub fn write32(self: *Self, address: u32, value: u32) void {
+    pub fn write16(self: *Self, address: u32, value: u16) void {
         switch (address) {
             0x00 => self.status &= value, // inverted acknowledge
             0x04 => self.mask = value,
