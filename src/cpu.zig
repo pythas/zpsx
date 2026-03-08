@@ -151,6 +151,8 @@ pub const Cpu = struct {
 
         self.cycles += 1;
 
+        self.bus.timers.tick(1);
+
         // check alignment
         if (self.current_pc % 4 != 0) {
             self.exception(.load_address_misaligned);

@@ -24,23 +24,23 @@ pub const Cdrom = struct {
         };
     }
 
-    pub fn read8(self: *Self, address: u32) u8 {
-        return switch (address) {
+    pub fn read8(self: *Self, offset: u32) u8 {
+        return switch (offset) {
             0x00 => @bitCast(self.status),
             else => {
-                std.debug.print("cdrom: Unhandled read8 from offset {x} (Bank: {d})\n", .{ address, self.status.index });
+                std.debug.print("cdrom: Unhandled read8 from offset {x} (Bank: {d})\n", .{ offset, self.status.index });
                 return 0;
             },
         };
     }
 
-    pub fn write8(self: *Self, address: u32, value: u8) void {
-        switch (address) {
+    pub fn write8(self: *Self, offset: u32, value: u8) void {
+        switch (offset) {
             0x00 => {
                 self.status.index = @truncate(value); // only writeable bit
             },
             else => {
-                std.debug.print("cdrom: Unhandled write8 to offset {x} with value {x} (Bank: {d})\n", .{ address, value, self.status.index });
+                std.debug.print("cdrom: Unhandled write8 to offset {x} with value {x} (Bank: {d})\n", .{ offset, value, self.status.index });
             },
         }
     }

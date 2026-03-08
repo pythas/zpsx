@@ -408,8 +408,8 @@ pub const Gpu = struct {
         self.renderer.deinit();
     }
 
-    pub fn read32(self: *Self, address: u32) u32 {
-        return switch (address) {
+    pub fn read32(self: *Self, offset: u32) u32 {
+        return switch (offset) {
             0x00 => self.gp0Read(),
             0x04 => {
                 // HACK: force vertical resolution to 240
@@ -418,7 +418,7 @@ pub const Gpu = struct {
                 return @bitCast(fake_stat);
             },
             else => {
-                std.debug.print("bus: Unhandled read32 from GPU\n", .{});
+                std.debug.print("gpu: Unhandled read32 from offset: {x}\n", .{offset});
                 return 0;
             },
         };
@@ -440,10 +440,10 @@ pub const Gpu = struct {
                     0x06 => self.gp1DisplayHorizontalRange(value),
                     0x07 => self.gp1DisplayVerticalRange(value),
                     0x08 => self.gp1DisplayMode(value),
-                    else => std.debug.panic("Unhandled GP1 opcode: {x}\n", .{opcode}),
+                    else => std.debug.panic("gpu: Unhandled GP1 opcode: {x}\n", .{opcode}),
                 }
             },
-            else => std.debug.panic("gpu: write {x} to {x}\n", .{ value, address }),
+            else => std.debug.panic("gpu: Unhandled write32 to offset: {x}\n", .{address}),
         }
     }
 

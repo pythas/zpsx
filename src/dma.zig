@@ -197,11 +197,11 @@ pub const Dma = struct {
         _ = self;
     }
 
-    pub fn read32(self: *Self, address: u32) u32 {
-        return switch (address) {
+    pub fn read32(self: *Self, offset: u32) u32 {
+        return switch (offset) {
             0x00...0x6c => {
-                const channel_index = address / 0x10;
-                const register_offset = address % 0x10;
+                const channel_index = offset / 0x10;
+                const register_offset = offset % 0x10;
                 const channel = &self.channels[channel_index];
 
                 return switch (register_offset) {
@@ -209,7 +209,7 @@ pub const Dma = struct {
                     0x4 => @bitCast(channel.bcr),
                     0x8 => @bitCast(channel.chcr),
                     else => {
-                        std.debug.print("bus: Unhandled read from DMA channel gap: {x}\n", .{address + bus.memory_map.dma.start});
+                        std.debug.print("dma: Unhandled read from gap: {x}\n", .{offset + bus.memory_map.dma.start});
                         return 0;
                     },
                 };
@@ -217,17 +217,17 @@ pub const Dma = struct {
             0x70 => @bitCast(self.dpcr),
             0x74 => @bitCast(self.dicr),
             else => {
-                std.debug.print("bus: Unhandled read32 from DMA: {x}\n", .{address + bus.memory_map.dma.start});
+                std.debug.print("dma: Unhandled read32 from offset: {x}\n", .{offset + bus.memory_map.dma.start});
                 return 0;
             },
         };
     }
 
-    pub fn write32(self: *Self, address: u32, value: u32) void {
-        switch (address) {
+    pub fn write32(self: *Self, offset: u32, value: u32) void {
+        switch (offset) {
             0x00...0x6f => {
-                const channel_index = address / 0x10;
-                const register_offset = address % 0x10;
+                const channel_index = offset / 0x10;
+                const register_offset = offset % 0x10;
                 const channel = &self.channels[channel_index];
 
                 switch (register_offset) {
@@ -241,13 +241,13 @@ pub const Dma = struct {
                         }
                     },
                     else => {
-                        std.debug.print("bus: Unhandled write to DMA channel gap: {x} - {x}\n", .{ address + bus.memory_map.dma.start, value });
+                        std.debug.print("dma: Unhandled write to gap: {x} - {x}\n", .{ offset + bus.memory_map.dma.start, value });
                     },
                 }
             },
             0x70 => self.dpcr = @bitCast(value),
             0x74 => self.dicr.write(value),
-            else => std.debug.print("bus: Unhandled write32 to DMA: {x} - {x}\n", .{ address + bus.memory_map.dma.start, value }),
+            else => std.debug.print("dma: Unhandled write32 to offset: {x} - {x}\n", .{ offset + bus.memory_map.dma.start, value }),
         }
     }
 };
