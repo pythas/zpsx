@@ -1,37 +1,60 @@
 const std = @import("std");
 
 const Renderer = @import("renderer.zig").Renderer;
+const Point = @import("primitives.zig").Point;
+const Color = @import("primitives.zig").Color;
 
-pub const Point = struct {
-    x: i16,
-    y: i16,
+pub const Color16 = packed struct(u16) {
+    r: u5,
+    g: u5,
+    b: u5,
+    semi_transparency: u1,
+};
 
-    pub inline fn fromWord(word: u32) Point {
-        return .{
-            .x = @bitCast(@as(u16, @truncate(word))),
-            .y = @bitCast(@as(u16, @truncate(word >> 16))),
-        };
-    }
+pub const TextureCoord = packed struct(u16) {
+    u: u8,
+    v: u8,
 
-    pub inline fn offset(self: Point, dx: i16, dy: i16) Point {
-        return .{
-            .x = self.x + dx,
-            .y = self.y + dy,
-        };
+    pub fn fromWord(word: u32) TextureCoord {
+        return @bitCast(@as(u16, @truncate(word)));
     }
 };
 
-pub const Color = struct {
-    r: u8,
-    g: u8,
-    b: u8,
+pub const TexturePage = packed struct(u16) {
+    x_base_raw: u4,
+    y_base_1: u1,
+    semi_transparency: SemiTransparency,
+    color_depth: TextureColors,
+    _reserved1: u2 = 0,
+    y_base_2: u1,
+    _reserved2: u4 = 0,
 
-    pub inline fn fromWord(word: u32) Color {
-        return .{
-            .r = @truncate(word),
-            .g = @truncate(word >> 8),
-            .b = @truncate(word >> 16),
-        };
+    pub fn fromWord(word: u32) TexturePage {
+        return @bitCast(@as(u16, @truncate(word >> 16)));
+    }
+
+    pub fn xBase(self: TexturePage) u16 {
+        return @as(u16, self.x_base_raw) * 64;
+    }
+
+    pub fn yBase(self: TexturePage) u16 {
+        const y1 = @as(u16, self.y_base_1);
+        const y2 = @as(u16, self.y_base_2);
+        return (y1 * 256) + (y2 * 512);
+    }
+};
+
+pub const Clut = packed struct(u16) {
+    x_base_raw: u6,
+    y_base: u9,
+    _unused: u1 = 0,
+
+    pub fn fromWord(word: u32) Clut {
+        return @bitCast(@as(u16, @truncate(word >> 16)));
+    }
+
+    pub fn xBase(self: Clut) u16 {
+        return @as(u16, self.x_base_raw) * 16;
     }
 };
 
@@ -266,6 +289,17 @@ pub const GpuStatusRegister = packed struct(u32) {
             ._480 => 480,
         };
     }
+
+    pub fn texturePageX(self: Self) u32 {
+        return @as(u32, self.texture_page_x_base) * 64;
+    }
+
+    pub fn texturePageY(self: Self) u32 {
+        const y1: u32 = self.texture_page_y_base_1;
+        const y2: u32 = self.texture_page_y_base_2;
+
+        return (y1 * 256) + (y2 * 512);
+    }
 };
 
 pub const Gpu = struct {
@@ -307,6 +341,13 @@ pub const Gpu = struct {
     gp0_buffer: [16]u32,
     gp0_buffer_len: usize,
     gp0_expected_len: usize,
+
+    transfer_dest_x: u16,
+    transfer_dest_y: u16,
+    transfer_current_x: u16,
+    transfer_current_y: u16,
+    transfer_width: u16,
+    transfer_height: u16,
 
     const Self = @This();
 
@@ -353,6 +394,13 @@ pub const Gpu = struct {
             .gp0_buffer = [_]u32{0} ** 16,
             .gp0_buffer_len = 0,
             .gp0_expected_len = 0,
+
+            .transfer_dest_x = 0,
+            .transfer_dest_y = 0,
+            .transfer_current_x = 0,
+            .transfer_current_y = 0,
+            .transfer_width = 0,
+            .transfer_height = 0,
         };
     }
 
@@ -414,6 +462,29 @@ pub const Gpu = struct {
         self.vram[index] = color;
     }
 
+    fn writeWordToVram(self: *Self, word: u32) void {
+        const pixel1: u16 = @truncate(word & 0xffff);
+        const pixel2: u16 = @truncate(word >> 16);
+
+        self.writePixelToVram(pixel1);
+        self.writePixelToVram(pixel2);
+    }
+
+    fn writePixelToVram(self: *Self, pixel: u16) void {
+        const x = self.transfer_current_x & 1023;
+        const y = self.transfer_current_y & 511;
+
+        const index = (@as(usize, y) * 1024) + @as(usize, x);
+        self.vram[index] = pixel;
+
+        self.transfer_current_x += 1;
+
+        if (self.transfer_current_x >= self.transfer_dest_x + self.transfer_width) {
+            self.transfer_current_x = self.transfer_dest_x;
+            self.transfer_current_y += 1;
+        }
+    }
+
     // GP0
     pub fn gp0Write(self: *Self, value: u32) void {
         switch (self.gp0_mode) {
@@ -432,8 +503,7 @@ pub const Gpu = struct {
                 }
             },
             .cpu_to_vram => {
-                // TODO:
-                // self.send_word_to_vram(value);
+                self.writeWordToVram(value);
                 self.gp0_words_remaining -= 1;
 
                 if (self.gp0_words_remaining == 0) {
@@ -553,12 +623,6 @@ pub const Gpu = struct {
         v4: u32,
         uv4: u32,
     ) void {
-        _ = c1;
-        _ = uv1;
-        _ = uv2;
-        _ = uv3;
-        _ = uv4;
-
         const dx = self.drawing_x_offset;
         const dy = self.drawing_y_offset;
 
@@ -567,16 +631,19 @@ pub const Gpu = struct {
         const p3 = Point.fromWord(v3).offset(dx, dy);
         const p4 = Point.fromWord(v4).offset(dx, dy);
 
-        const color = Color{ .r = 0x80, .g = 0, .b = 0 };
+        const color = Color.fromWord(c1);
 
-        _ = color;
-        _ = p1;
-        _ = p2;
-        _ = p3;
-        _ = p4;
+        const t1 = TextureCoord.fromWord(uv1);
+        const clut = Clut.fromWord(uv1);
 
-        // self.renderer.pushShadedTriangle(p1, color, p2, color, p3, color);
-        // self.renderer.pushShadedTriangle(p2, color, p3, color, p4, color);
+        const t2 = TextureCoord.fromWord(uv2);
+        const tpage = TexturePage.fromWord(uv2);
+
+        const t3 = TextureCoord.fromWord(uv3);
+        const t4 = TextureCoord.fromWord(uv4);
+
+        self.renderer.pushTexturedTriangle(self, p1, color, t1, p2, color, t2, p3, color, t3, tpage, clut);
+        self.renderer.pushTexturedTriangle(self, p2, color, t2, p3, color, t3, p4, color, t4, tpage, clut);
     }
 
     fn gp0ShadedQuad(
@@ -603,17 +670,8 @@ pub const Gpu = struct {
         const color3 = Color.fromWord(c3);
         const color4 = Color.fromWord(c4);
 
-        _ = color1;
-        _ = color2;
-        _ = color3;
-        _ = color4;
-        _ = p1;
-        _ = p2;
-        _ = p3;
-        _ = p4;
-
-        // self.renderer.pushShadedTriangle(p1, color1, p2, color2, p3, color3);
-        // self.renderer.pushShadedTriangle(p2, color2, p3, color3, p4, color4);
+        self.renderer.pushShadedTriangle(self, p1, color1, p2, color2, p3, color3);
+        self.renderer.pushShadedTriangle(self, p2, color2, p3, color3, p4, color4);
     }
 
     fn gp0ShadedTriangle(
@@ -640,24 +698,30 @@ pub const Gpu = struct {
     }
 
     fn gp0LoadImage(self: *Self, word1: u32, word2: u32) void {
-        const dest: ImageDestination = @bitCast(word1);
-        const dims: ImageDimensions = @bitCast(word2);
+        const destination: ImageDestination = @bitCast(word1);
+        const dimensions: ImageDimensions = @bitCast(word2);
 
         std.debug.print("gpu: copy CPU to VRAM. Dest({d}, {d}) Size({d}x{d})\n", .{
-            dest.x,
-            dest.y,
-            dims.width,
-            dims.height,
+            destination.x,
+            destination.y,
+            dimensions.width,
+            dimensions.height,
         });
 
-        const width: u32 = dims.width;
-        const height: u32 = dims.height;
+        const width: u32 = dimensions.width;
+        const height: u32 = dimensions.height;
         const image_size = ((width + 1) / 2) * height;
 
         self.gp0_mode = .cpu_to_vram;
         self.gp0_words_remaining = image_size;
 
-        // TODO: store dest.x and dest.y
+        self.transfer_dest_x = destination.x;
+        self.transfer_dest_y = destination.y;
+        self.transfer_current_x = destination.x;
+        self.transfer_current_y = destination.y;
+
+        self.transfer_width = if (dimensions.width == 0) 1024 else dimensions.width;
+        self.transfer_height = if (dimensions.height == 0) 512 else dimensions.height;
     }
 
     fn gp0StoreImage(self: *Self, word1: u32, word2: u32) void {

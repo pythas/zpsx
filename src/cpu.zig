@@ -70,6 +70,11 @@ pub const Cpu = struct {
 
     bus: *Bus,
 
+    trace_buffer: [1024]u32 = [_]u32{0} ** 1024,
+    trace_index: usize = 0,
+
+    fatal_error: ?[]const u8 = null,
+
     const Self = @This();
 
     pub fn init(bus: *Bus) Self {
@@ -128,6 +133,11 @@ pub const Cpu = struct {
 
         self.current_pc = self.pc;
 
+        // save trace
+        self.trace_buffer[self.trace_index] = self.current_pc;
+        self.trace_index = (self.trace_index + 1) % self.trace_buffer.len;
+
+        // check alignment
         if (self.current_pc % 4 != 0) {
             self.exception(.load_address_misaligned);
             return;
@@ -142,8 +152,6 @@ pub const Cpu = struct {
 
         self.is_delay_slot = self.is_branch;
         self.is_branch = false;
-
-        // printInstruction(instruction);
 
         switch (instruction.r.opcode) {
             0b000000 => {

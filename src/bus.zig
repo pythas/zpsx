@@ -1,6 +1,7 @@
 const std = @import("std");
 const Ram = @import("ram.zig").Ram;
 const Dma = @import("dma.zig").Dma;
+const Cdrom = @import("cdrom.zig").Cdrom;
 const Gpu = @import("gpu.zig").Gpu;
 const Bios = @import("bios.zig").Bios;
 
@@ -14,13 +15,16 @@ pub const memory_map = struct {
     pub const exp1 = Range{ .start = 0x1f00_0000, .end = 0x1f80_0000 - 1 };
     pub const scratchpad = Range{ .start = 0x1f80_0000, .end = 0x1f80_0400 - 1 };
 
-    pub const hardware_io = Range{ .start = 0x1f80_1000, .end = 0x1f80_2000 - 1 };
     pub const mem_control = Range{ .start = 0x1f80_1000, .end = 0x1f80_1024 - 1 };
+    pub const joypad = Range{ .start = 0x1f80_1040, .end = 0x1f80_1050 - 1 };
+    pub const serial = Range{ .start = 0x1f80_1050, .end = 0x1f80_1060 - 1 };
     pub const ram_size = Range{ .start = 0x1f80_1060, .end = 0x1f80_1064 - 1 };
     pub const irq_control = Range{ .start = 0x1f80_1070, .end = 0x1f80_1078 - 1 };
     pub const dma = Range{ .start = 0x1f80_1080, .end = 0x1f80_1100 - 1 };
     pub const timers = Range{ .start = 0x1f80_1100, .end = 0x1f80_1130 - 1 };
+    pub const cdrom = Range{ .start = 0x1f80_1800, .end = 0x1f80_1804 - 1 };
     pub const gpu = Range{ .start = 0x1f80_1810, .end = 0x1f80_1818 - 1 };
+    pub const mdec = Range{ .start = 0x1f80_1820, .end = 0x1f80_1828 - 1 };
     pub const spu = Range{ .start = 0x1f80_1c00, .end = 0x1f80_1e80 - 1 };
 
     pub const exp2 = Range{ .start = 0x1f80_2000, .end = 0x1f80_4000 - 1 };
@@ -34,6 +38,7 @@ pub const Bus = struct {
 
     ram: Ram,
     dma: Dma,
+    cdrom: Cdrom,
     gpu: Gpu,
     bios: Bios,
 
@@ -48,6 +53,7 @@ pub const Bus = struct {
     pub fn init(allocator: std.mem.Allocator) !Self {
         const ram = try Ram.init(allocator);
         const dma = Dma.init();
+        const cdrom = Cdrom.init(allocator);
         const gpu = try Gpu.init(allocator);
         const bios = try Bios.init(allocator);
 
@@ -55,6 +61,7 @@ pub const Bus = struct {
             .allocator = allocator,
             .ram = ram,
             .dma = dma,
+            .cdrom = cdrom,
             .gpu = gpu,
             .bios = bios,
         };
@@ -163,6 +170,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write8(address, value),
+            memory_map.cdrom.start...memory_map.cdrom.end => self.cdrom.write8(address - memory_map.cdrom.start, value),
             memory_map.exp2.start...memory_map.exp2.end => std.debug.print("bus: Unhandled write8 to EXPANSION_2\n", .{}),
             else => std.debug.panic("bus: Unsupported write8: {x}", .{address}),
         }

@@ -4,16 +4,16 @@ const sokol = @import("sokol");
 const sg = sokol.gfx;
 
 const Gpu = @import("gpu.zig").Gpu;
-const Point = @import("gpu.zig").Point;
-const Color = @import("gpu.zig").Color;
+const Point = @import("primitives.zig").Point;
+const Color = @import("primitives.zig").Color;
+const TextureCoord = @import("gpu.zig").TextureCoord;
 
-pub const Vertex = extern struct {
-    x: f32,
-    y: f32,
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8 = 255,
+const TextureParams = struct {
+    t1: TextureCoord,
+    t2: TextureCoord,
+    t3: TextureCoord,
+    tpage: @import("gpu.zig").TexturePage,
+    clut: @import("gpu.zig").Clut,
 };
 
 pub const Renderer = struct {
@@ -31,8 +31,117 @@ pub const Renderer = struct {
         _ = self;
     }
 
-    pub fn flush(self: *Self) void {
-        _ = self;
+    fn rasterizeTriangle(
+        _: *Self,
+        gpu: *Gpu,
+        pts: [3]Point,
+        cols: [3]Color,
+        tex_params: ?TextureParams,
+    ) void {
+        var points = pts;
+        var colors = cols;
+        var tex = tex_params;
+
+        var area: i64 = edgeFunction(points[0], points[1], points[2]);
+
+        if (area < 0) {
+            std.mem.swap(Point, &points[1], &points[2]);
+            std.mem.swap(Color, &colors[1], &colors[2]);
+            if (tex) |*t| {
+                std.mem.swap(TextureCoord, &t.t2, &t.t3);
+            }
+            area = -area;
+        }
+
+        if (area == 0) return;
+
+        var bbx = Bbx.fromPoints(&points);
+        bbx.min_x = @max(bbx.min_x, @as(i16, @intCast(gpu.drawing_area_left)));
+        bbx.max_x = @min(bbx.max_x, @as(i16, @intCast(gpu.drawing_area_right)));
+        bbx.min_y = @max(bbx.min_y, @as(i16, @intCast(gpu.drawing_area_top)));
+        bbx.max_y = @min(bbx.max_y, @as(i16, @intCast(gpu.drawing_area_bottom)));
+
+        if (bbx.min_x > bbx.max_x or bbx.min_y > bbx.max_y) return;
+
+        var y: i32 = bbx.min_y;
+        while (y <= bbx.max_y) : (y += 1) {
+            var x: i32 = bbx.min_x;
+            while (x <= bbx.max_x) : (x += 1) {
+                const p = Point{ .x = @intCast(x), .y = @intCast(y) };
+
+                // calc weights
+                const w0 = edgeFunction(points[1], points[2], p);
+                const w1 = edgeFunction(points[2], points[0], p);
+                const w2 = edgeFunction(points[0], points[1], p);
+
+                if (w0 >= 0 and w1 >= 0 and w2 >= 0) {
+                    const w0_fixed = @divTrunc(@as(i64, w0) << 12, area);
+                    const w1_fixed = @divTrunc(@as(i64, w1) << 12, area);
+                    const w2_fixed = @divTrunc(@as(i64, w2) << 12, area);
+
+                    // base vertex color
+                    var r = interpolate(w0_fixed, w1_fixed, w2_fixed, colors[0].r, colors[1].r, colors[2].r);
+                    var g = interpolate(w0_fixed, w1_fixed, w2_fixed, colors[0].g, colors[1].g, colors[2].g);
+                    var b = interpolate(w0_fixed, w1_fixed, w2_fixed, colors[0].b, colors[1].b, colors[2].b);
+
+                    // texture mapping
+                    if (tex) |t| {
+                        const u = interpolate(w0_fixed, w1_fixed, w2_fixed, t.t1.u, t.t2.u, t.t3.u);
+                        const v = interpolate(w0_fixed, w1_fixed, w2_fixed, t.t1.v, t.t2.v, t.t3.v);
+
+                        var texel16: u16 = 0;
+
+                        switch (t.tpage.color_depth) {
+                            ._15bit => {
+                                const vram_x = t.tpage.xBase() + u;
+                                const vram_y = t.tpage.yBase() + v;
+
+                                texel16 = gpu.vram[vram_y * 1024 + vram_x];
+                            },
+                            ._8bit => {
+                                const vram_x = t.tpage.xBase() + (u / 2);
+                                const vram_y = t.tpage.yBase() + v;
+                                const word = gpu.vram[vram_y * 1024 + vram_x];
+
+                                const index: u8 = if (u % 2 == 0) @truncate(word & 0xff) else @truncate(word >> 8);
+
+                                const clut_y = @as(usize, t.clut.y_base);
+                                const clut_x = @as(usize, t.clut.xBase());
+                                texel16 = gpu.vram[clut_y * 1024 + clut_x + index];
+                            },
+                            ._4bit => {
+                                const vram_x = t.tpage.xBase() + (u / 4);
+                                const vram_y = t.tpage.yBase() + v;
+                                const word = gpu.vram[vram_y * 1024 + vram_x];
+
+                                const shift = @as(u4, @truncate(u % 4)) * 4;
+                                const index: u4 = @truncate((word >> shift) & 0xf);
+
+                                const clut_y = @as(usize, t.clut.y_base);
+                                const clut_x = @as(usize, t.clut.xBase());
+                                texel16 = gpu.vram[clut_y * 1024 + clut_x + index];
+                            },
+                            .reserved => {},
+                        }
+
+                        // transparency
+                        if (texel16 == 0) continue;
+
+                        // convert to 8-bit
+                        const tr = @as(u16, texel16 & 0x1F) << 3;
+                        const tg = @as(u16, (texel16 >> 5) & 0x1F) << 3;
+                        const tb = @as(u16, (texel16 >> 10) & 0x1F) << 3;
+
+                        // blend
+                        r = @as(u8, @intCast(@min(255, (@as(u16, tr) * r) / 128)));
+                        g = @as(u8, @intCast(@min(255, (@as(u16, tg) * g) / 128)));
+                        b = @as(u8, @intCast(@min(255, (@as(u16, tb) * b) / 128)));
+                    }
+
+                    gpu.putPixel(@as(i16, @intCast(x)), @as(i16, @intCast(y)), r, g, b);
+                }
+            }
+        }
     }
 
     pub fn pushShadedTriangle(
@@ -45,64 +154,32 @@ pub const Renderer = struct {
         p3: Point,
         c3: Color,
     ) void {
-        _ = self;
+        self.rasterizeTriangle(gpu, .{ p1, p2, p3 }, .{ c1, c2, c3 }, null);
+    }
 
-        var points = [3]Point{ p1, p2, p3 };
-        var colors = [3]Color{ c1, c2, c3 };
-
-        var area = edgeFunction(points[0], points[1], points[2]);
-
-        if (area < 0) {
-            std.mem.swap(Point, &points[1], &points[2]);
-            std.mem.swap(Color, &colors[1], &colors[2]);
-            area = -area;
-        }
-
-        if (area == 0) return;
-
-        var bbx = Bbx.fromPoints(&points);
-
-        bbx.min_x = @max(bbx.min_x, @as(i16, @intCast(gpu.drawing_area_left)));
-        bbx.max_x = @min(bbx.max_x, @as(i16, @intCast(gpu.drawing_area_right)));
-        bbx.min_y = @max(bbx.min_y, @as(i16, @intCast(gpu.drawing_area_top)));
-        bbx.max_y = @min(bbx.max_y, @as(i16, @intCast(gpu.drawing_area_bottom)));
-
-        if (bbx.min_x > bbx.max_x or bbx.min_y > bbx.max_y) {
-            return;
-        }
-
-        var y: i32 = bbx.min_y;
-        while (y <= bbx.max_y) : (y += 1) {
-            var x: i32 = bbx.min_x;
-            while (x <= bbx.max_x) : (x += 1) {
-                const p = Point{
-                    .x = @intCast(x),
-                    .y = @intCast(y),
-                };
-
-                const w0 = edgeFunction(points[1], points[2], p);
-                const w1 = edgeFunction(points[2], points[0], p);
-                const w2 = edgeFunction(points[0], points[1], p);
-
-                if (w0 >= 0 and w1 >= 0 and w2 >= 0) {
-                    const area_64: i64 = area;
-
-                    // calc barycentric coords
-                    // shift up by 12 bits simulating fixed points representation
-                    // NOTE: this is not hardware accurate . implement DDA
-                    const w0_fixed = @divTrunc(@as(i64, w0) << 12, area_64);
-                    const w1_fixed = @divTrunc(@as(i64, w1) << 12, area_64);
-                    const w2_fixed = @divTrunc(@as(i64, w2) << 12, area_64);
-
-                    // interpolate using weights
-                    const r = (w0_fixed * colors[0].r + w1_fixed * colors[1].r + w2_fixed * colors[2].r) >> 12;
-                    const g = (w0_fixed * colors[0].g + w1_fixed * colors[1].g + w2_fixed * colors[2].g) >> 12;
-                    const b = (w0_fixed * colors[0].b + w1_fixed * colors[1].b + w2_fixed * colors[2].b) >> 12;
-
-                    gpu.putPixel(@as(i16, @intCast(x)), @as(i16, @intCast(y)), @as(u8, @intCast(r)), @as(u8, @intCast(g)), @as(u8, @intCast(b)));
-                }
-            }
-        }
+    pub fn pushTexturedTriangle(
+        self: *Self,
+        gpu: *Gpu,
+        p1: Point,
+        c1: Color,
+        t1: TextureCoord,
+        p2: Point,
+        c2: Color,
+        t2: TextureCoord,
+        p3: Point,
+        c3: Color,
+        t3: TextureCoord,
+        tpage: @import("gpu.zig").TexturePage,
+        clut: @import("gpu.zig").Clut,
+    ) void {
+        const tex_params = TextureParams{
+            .t1 = t1,
+            .t2 = t2,
+            .t3 = t3,
+            .tpage = tpage,
+            .clut = clut,
+        };
+        self.rasterizeTriangle(gpu, .{ p1, p2, p3 }, .{ c1, c2, c3 }, tex_params);
     }
 };
 
@@ -131,7 +208,7 @@ const Bbx = struct {
     }
 };
 
-fn edgeFunction(a: Point, b: Point, c: Point) i32 {
+inline fn edgeFunction(a: Point, b: Point, c: Point) i32 {
     const ax: i32 = a.x;
     const ay: i32 = a.y;
     const bx: i32 = b.x;
@@ -140,4 +217,10 @@ fn edgeFunction(a: Point, b: Point, c: Point) i32 {
     const cy: i32 = c.y;
 
     return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
+}
+
+inline fn interpolate(w0: i64, w1: i64, w2: i64, val0: u8, val1: u8, val2: u8) u8 {
+    const result = (w0 * @as(i64, val0) + w1 * @as(i64, val1) + w2 * @as(i64, val2)) >> 12;
+
+    return @as(u8, @intCast(@max(0, @min(255, result))));
 }
