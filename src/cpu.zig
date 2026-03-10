@@ -136,22 +136,35 @@ pub const Cpu = struct {
     }
 
     pub fn step(self: *Self) void {
-        // check interrupts
-        if (self.bus.intc.is_active()) {
-            const sr = self.getCp0Reg(12, 0);
+        // // tty
+        // const pc = self.pc & 0x1fff_ffff;
+        // if (pc == 0xa0 and self.getReg(9) == 0x3c or (pc == 0xb0 and self.getReg(9) == 0x3d)) {
+        //     const char: u8 = @truncate(self.getReg(4));
+        //     std.debug.print("{c}", .{char});
+        // }
 
-            if ((sr & 0x01) != 0 and (sr & 0x0400) != 0) {
+        const current_cause = self.getCp0Reg(13, 0);
+        if (self.bus.intc.is_active()) {
+            self.setCp0Reg(13, 0, current_cause | 0x0400);
+        } else {
+            self.setCp0Reg(13, 0, current_cause & ~@as(u32, 0x0400));
+        }
+
+        // check IEc and IM2
+        const sr = self.getCp0Reg(12, 0);
+        if (!self.is_branch and (sr & 0x01) != 0 and (sr & 0x0400) != 0) {
+            if (self.bus.intc.is_active()) {
                 self.exception(.interrupt);
             }
         }
 
+        // irq
+        if (self.cycles % 564480 == 0) {
+            self.bus.intc.trigger(.vblank);
+        }
+
         const instruction: Instruction = @bitCast(self.bus.read32(self.pc));
-
         self.current_pc = self.pc;
-
-        self.cycles += 1;
-
-        self.bus.timers.tick(1);
 
         // check alignment
         if (self.current_pc % 4 != 0) {
@@ -162,6 +175,8 @@ pub const Cpu = struct {
         self.pc = self.next_pc;
         self.next_pc +%= 4;
 
+        self.cycles += 1;
+
         self.load = self.next_load;
         self.next_load = .{ .reg = 0, .value = 0 };
 
@@ -169,6 +184,8 @@ pub const Cpu = struct {
 
         self.is_delay_slot = self.is_branch;
         self.is_branch = false;
+
+        self.bus.timers.tick(1);
 
         switch (instruction.r.opcode) {
             0b000000 => {
@@ -267,10 +284,6 @@ pub const Cpu = struct {
             self.registers[self.load.reg] = self.load.value;
         }
 
-        // if (pending_load.reg != 0) {
-        //     self.registers[pending_load.reg] = pending_load.value;
-        // }
-
         // apply current write
         if (self.current_write.reg != 0) {
             self.registers[self.current_write.reg] = self.current_write.value;
@@ -295,19 +308,24 @@ pub const Cpu = struct {
         self.setCp0Reg(12, 0, new_sr);
 
         // update cause reg with the exception
+        const old_cause = self.getCp0Reg(13, 0);
         const cause_code: u32 = @intFromEnum(cause);
-        self.setCp0Reg(13, 0, cause_code << 2);
+        const new_cause = (old_cause & ~@as(u32, 0x7C)) | (cause_code << 2);
+        self.setCp0Reg(13, 0, new_cause);
 
         // save current pc in epc
-        self.setCp0Reg(14, 0, self.current_pc);
+        const epc = if (cause == .interrupt) self.pc else self.current_pc;
+        self.setCp0Reg(14, 0, epc);
 
         if (self.is_delay_slot) {
-            // if the exception happened in a delay slot, we need to adjust the EPC to point to the branch instruction
-            const epc = self.getCp0Reg(14, 0);
+            // adjust epc to point and branch instruction
             self.setCp0Reg(14, 0, epc -% 4);
 
-            // and set the BD (Branch Delay) bit in the cause register
+            // set BD bit in the cause register
             self.setCp0Reg(13, 0, self.getCp0Reg(13, 0) | 0x8000_0000);
+        } else {
+            // clear BD bit in the cause register
+            self.setCp0Reg(13, 0, self.getCp0Reg(13, 0) & ~@as(u32, 0x8000_0000));
         }
 
         self.pc = handler;

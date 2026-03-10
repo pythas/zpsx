@@ -25,6 +25,8 @@ pub const Cdrom = struct {
     }
 
     pub fn read8(self: *Self, offset: u32) u8 {
+        std.debug.print("cdrom: read8 from offset {x} (Bank: {d})\n", .{ offset, self.status.index });
+
         return switch (offset) {
             0x00 => @bitCast(self.status),
             else => {
@@ -35,6 +37,8 @@ pub const Cdrom = struct {
     }
 
     pub fn write8(self: *Self, offset: u32, value: u8) void {
+        std.debug.print("cdrom: write8 to offset {x} with value {x} (Bank: {d})\n", .{ offset, value, self.status.index });
+
         switch (offset) {
             0x00 => {
                 self.status.index = @truncate(value); // only writeable bit

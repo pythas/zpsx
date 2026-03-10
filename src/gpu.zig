@@ -701,12 +701,12 @@ pub const Gpu = struct {
         const destination: ImageDestination = @bitCast(word1);
         const dimensions: ImageDimensions = @bitCast(word2);
 
-        std.debug.print("gpu: copy CPU to VRAM. Dest({d}, {d}) Size({d}x{d})\n", .{
-            destination.x,
-            destination.y,
-            dimensions.width,
-            dimensions.height,
-        });
+        // std.debug.print("gpu: copy CPU to VRAM. Dest({d}, {d}) Size({d}x{d})\n", .{
+        //     destination.x,
+        //     destination.y,
+        //     dimensions.width,
+        //     dimensions.height,
+        // });
 
         const width: u32 = dimensions.width;
         const height: u32 = dimensions.height;
@@ -728,12 +728,14 @@ pub const Gpu = struct {
         const dest: ImageDestination = @bitCast(word1);
         const dims: ImageDimensions = @bitCast(word2);
 
-        std.debug.print("GPU: Copy VRAM to CPU. Dest({d}, {d}) Size({d}x{d})\n", .{
-            dest.x,
-            dest.y,
-            dims.width,
-            dims.height,
-        });
+        _ = dest;
+
+        // std.debug.print("GPU: Copy VRAM to CPU. Dest({d}, {d}) Size({d}x{d})\n", .{
+        //     dest.x,
+        //     dest.y,
+        //     dims.width,
+        //     dims.height,
+        // });
 
         const width: u32 = dims.width;
         const height: u32 = dims.height;
@@ -788,7 +790,6 @@ pub const Gpu = struct {
 
         self.drawing_x_offset = cmd.x;
         self.drawing_y_offset = cmd.y;
-        std.debug.print("gpu: drawing offset: {d}, {d}\n", .{ self.drawing_x_offset, self.drawing_y_offset });
     }
 
     fn gp0MaskBitSetting(self: *Self, value: u32) void {

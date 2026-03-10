@@ -1,3 +1,5 @@
+const std = @import("std");
+
 pub const Interrupt = enum(u32) {
     vblank = 0,
     gpu = 1,
@@ -30,19 +32,21 @@ pub const InterruptController = struct {
     }
 
     pub fn trigger(self: *Self, irq: Interrupt) void {
-        self.status |= (@as(u32, 1) << @intFromEnum(irq));
+        self.status |= (@as(u16, 1) << @intCast(@intFromEnum(irq)));
     }
 
-    pub fn read16(self: *Self, address: u32) u16 {
-        return switch (address) {
+    pub fn read16(self: *Self, offset: u32) u16 {
+        return switch (offset) {
             0x00 => self.status,
             0x04 => self.mask,
             else => unreachable,
         };
     }
 
-    pub fn write16(self: *Self, address: u32, value: u16) void {
-        switch (address) {
+    pub fn write16(self: *Self, offset: u32, value: u16) void {
+        std.debug.print("IRQ WRITE: {x} {b}\n", .{ offset, value });
+
+        switch (offset) {
             0x00 => self.status &= value, // inverted acknowledge
             0x04 => self.mask = value,
             else => unreachable,
