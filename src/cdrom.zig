@@ -69,8 +69,6 @@ pub const StatusRegister = packed struct(u8) {
 pub const Cdrom = struct {
     allocator: std.mem.Allocator,
 
-    intc: *InterruptController,
-
     status: StatusRegister,
 
     parameter: Fifo,
@@ -84,10 +82,9 @@ pub const Cdrom = struct {
 
     const Self = @This();
 
-    pub fn init(allocator: std.mem.Allocator, intc: *InterruptController) Self {
+    pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .intc = intc,
             .status = @bitCast(@as(u8, 0x18)),
             .parameter = Fifo.init(),
             .response = Fifo.init(),
@@ -155,7 +152,7 @@ pub const Cdrom = struct {
         }
     }
 
-    pub fn step(self: *Self, cycles: u32) void {
+    pub fn step(self: *Self, cycles: u32, intc: *InterruptController) void {
         if (self.command_delay == 0) return;
 
         if (cycles < self.command_delay) {
@@ -168,7 +165,7 @@ pub const Cdrom = struct {
         const cmd = self.pending_command orelse return;
 
         self.pending_command = null;
-        self.processCommand(cmd);
+        self.processCommand(cmd, intc);
     }
 
     fn executeCommand(self: *Self, command: u8) void {
@@ -176,7 +173,7 @@ pub const Cdrom = struct {
         self.command_delay = 30_000;
     }
 
-    fn processCommand(self: *Self, command: u8) void {
+    fn processCommand(self: *Self, command: u8, intc: *InterruptController) void {
         switch (command) {
             0x19 => {
                 const sub_command = self.parameter.pop();
@@ -190,7 +187,7 @@ pub const Cdrom = struct {
 
                         self.interrupt_status = 3;
 
-                        self.intc.trigger(.cdrom);
+                        intc.trigger(.cdrom);
                     },
                     else => std.debug.print("cdrom: Unhandling sub command {x}\n", .{command}),
                 }

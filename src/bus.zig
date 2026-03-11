@@ -56,10 +56,10 @@ pub const Bus = struct {
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         const ram = try Ram.init(allocator);
-        var intc = InterruptController.init();
+        const intc = InterruptController.init();
         const dma = Dma.init();
         const timers = Timers.init();
-        const cdrom = Cdrom.init(allocator, &intc);
+        const cdrom = Cdrom.init(allocator);
         const gpu = try Gpu.init(allocator);
         const bios = try Bios.init(allocator);
 

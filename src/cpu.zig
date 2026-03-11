@@ -186,7 +186,7 @@ pub const Cpu = struct {
         self.is_branch = false;
 
         self.bus.timers.step(1);
-        self.bus.cdrom.step(1);
+        self.bus.cdrom.step(1, &self.bus.intc);
 
         switch (instruction.r.opcode) {
             0b000000 => {
