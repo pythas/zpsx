@@ -110,7 +110,7 @@ pub const Timers = struct {
         }
     }
 
-    pub fn tick(self: *Self, cycles: u32) void {
+    pub fn step(self: *Self, cycles: u32) void {
         self.sys_clock_timer += cycles;
 
         const div8_ticks = self.sys_clock_timer / 8;

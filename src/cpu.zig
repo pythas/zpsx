@@ -185,7 +185,8 @@ pub const Cpu = struct {
         self.is_delay_slot = self.is_branch;
         self.is_branch = false;
 
-        self.bus.timers.tick(1);
+        self.bus.timers.step(1);
+        self.bus.cdrom.step(1);
 
         switch (instruction.r.opcode) {
             0b000000 => {
