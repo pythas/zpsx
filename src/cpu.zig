@@ -34,6 +34,40 @@ pub const Cop0 = struct {
     }
 };
 
+pub const Cop2 = struct {
+    data_registers: [32]u32,
+    control_registers: [32]u32,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{
+            .data_registers = [_]u32{0} ** 32,
+            .control_registers = [_]u32{0} ** 32,
+        };
+    }
+
+    pub fn getDataRegister(self: *Self, register: u5) u32 {
+        return self.data_registers[register];
+    }
+
+    pub fn setDataRegister(self: *Self, register: u5, value: u32) void {
+        self.data_registers[register] = value;
+
+        // TODO: handle side effects
+    }
+
+    pub fn getControlRegister(self: *Self, register: u5) u32 {
+        return self.control_registers[register];
+    }
+
+    pub fn setControlRegister(self: *Self, register: u5, value: u32) void {
+        self.control_registers[register] = value;
+
+        // TODO: handle side effects
+    }
+};
+
 pub const Instruction = packed union {
     raw: u32,
     r: packed struct {
@@ -91,6 +125,7 @@ pub const Cpu = struct {
 
     registers: [32]u32,
     cop0: Cop0,
+    cop2: Cop2,
     hi: u32,
     lo: u32,
 
@@ -115,6 +150,7 @@ pub const Cpu = struct {
             .is_delay_slot = false,
             .registers = [_]u32{0xdeadfeed} ** 32,
             .cop0 = Cop0.init(),
+            .cop2 = Cop2.init(),
             .hi = 0xdeadfeed,
             .lo = 0xdeadfeed,
             .load = .{ .reg = 0, .value = 0 },
@@ -235,8 +271,8 @@ pub const Cpu = struct {
             },
             0b010000 => {
                 switch (instruction.cop_move.sub) {
-                    0b00100 => self.opMtc0(instruction),
-                    0b00000 => self.opMfc0(instruction),
+                    0b00100 => self.opMtcz(instruction),
+                    0b00000 => self.opMfcz(instruction),
                     0b10000 => self.opRfe(instruction),
 
                     else => unreachable,
@@ -251,6 +287,7 @@ pub const Cpu = struct {
             },
             0b010010 => {
                 switch (instruction.cop_move.sub) {
+                    0b00110 => self.opCtcz(instruction),
                     else => std.debug.print("NOPE: {b}\n", .{instruction.cop_move.sub}),
                 }
             },
@@ -346,21 +383,27 @@ pub const Cpu = struct {
         self.next_pc = self.pc +% 4;
     }
 
-    // cop0
-    fn opMtc0(self: *Self, instruction: Instruction) void {
+    // copz
+    fn opMtcz(self: *Self, instruction: Instruction) void {
         const c = instruction.cop_move;
 
         const value = self.registers[c.rt];
 
-        self.cop0.setDataRegister(c.rd, value);
+        switch (c.opcode) {
+            0b010000 => self.cop0.setDataRegister(c.rd, value),
+            else => unreachable,
+        }
     }
 
-    fn opMfc0(self: *Self, instruction: Instruction) void {
+    fn opMfcz(self: *Self, instruction: Instruction) void {
         const c = instruction.cop_move;
 
         const value = self.cop0.getDataRegister(c.rd);
 
-        self.setRegDelayed(c.rt, value);
+        switch (c.opcode) {
+            0b010000 => self.setRegDelayed(c.rt, value),
+            else => unreachable,
+        }
     }
 
     fn opRfe(self: *Self, _: Instruction) void {
@@ -384,6 +427,17 @@ pub const Cpu = struct {
         const value = self.getReg(r.rt) >> @as(u5, @truncate(self.getReg(r.rs)));
 
         self.setReg(r.rd, value);
+    }
+
+    fn opCtcz(self: *Self, instruction: Instruction) void {
+        const c = instruction.cop_move;
+
+        const value = self.getReg(c.rt);
+
+        switch (c.opcode) {
+            0b010010 => self.cop2.setControlRegister(c.rd, value),
+            else => unreachable,
+        }
     }
 
     // i-type

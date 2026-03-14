@@ -99,7 +99,7 @@ pub const Timers = struct {
                     0x4 => {
                         timer.mode = @bitCast(value);
 
-                        timer.mode.interrupt_request = 1;
+                        timer.mode.interrupt_request = 0;
                         timer.current.value = 0;
                     },
                     0x8 => timer.target = @bitCast(value),
@@ -107,6 +107,18 @@ pub const Timers = struct {
                 }
             },
             else => std.debug.print("timers: Unhandled write32 to offset: {x}\n", .{offset}),
+        }
+    }
+
+    pub fn read16(self: *Self, offset: u32) u16 {
+        const aligned_offset = offset & ~@as(u32, 2);
+
+        const full_word = self.read32(aligned_offset);
+
+        if ((offset & 2) == 0) {
+            return @as(u16, @truncate(full_word));
+        } else {
+            return @as(u16, @truncate(full_word >> 16));
         }
     }
 

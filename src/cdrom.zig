@@ -189,10 +189,10 @@ pub const Cdrom = struct {
 
                         intc.trigger(.cdrom);
                     },
-                    else => std.debug.print("cdrom: Unhandling sub command {x}\n", .{command}),
+                    else => std.debug.print("cdrom: Unhandled sub command {x}\n", .{command}),
                 }
             },
-            else => std.debug.print("cdrom: Unhandling command {x}\n", .{command}),
+            else => std.debug.print("cdrom: Unhandled command {x}\n", .{command}),
         }
     }
 };

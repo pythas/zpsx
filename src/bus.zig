@@ -133,7 +133,9 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read16(address),
+            memory_map.joypad.start...memory_map.joypad.end => self.joypad.read16(address - memory_map.joypad.start),
             memory_map.intc.start...memory_map.intc.end => self.intc.read16(address - memory_map.intc.start),
+            memory_map.timers.start...memory_map.timers.end => self.timers.read16(address - memory_map.timers.start),
             memory_map.spu.start...memory_map.spu.end => {
                 // std.debug.print("bus: Unhandled read16 from SPU\n", .{});
                 return 0;
@@ -164,6 +166,7 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read8(address),
+            memory_map.joypad.start...memory_map.joypad.end => self.joypad.read8(address - memory_map.joypad.start),
             memory_map.exp1.start...memory_map.exp1.end => 0xff,
             memory_map.cdrom.start...memory_map.cdrom.end => self.cdrom.read8(address - memory_map.cdrom.start),
             memory_map.bios.start...memory_map.bios.end => self.bios.read8(address - memory_map.bios.start),
@@ -178,6 +181,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write8(address, value),
+            memory_map.joypad.start...memory_map.joypad.end => self.joypad.write8(address - memory_map.joypad.start, value),
             memory_map.cdrom.start...memory_map.cdrom.end => self.cdrom.write8(address - memory_map.cdrom.start, value),
             memory_map.exp2.start...memory_map.exp2.end => std.debug.print("bus: Unhandled write8 to EXPANSION_2\n", .{}),
             else => std.debug.panic("bus: Unsupported write8: {x}", .{address}),
