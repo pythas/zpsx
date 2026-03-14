@@ -12,6 +12,28 @@ const std = @import("std");
 const Bus = @import("bus.zig").Bus;
 const utils = @import("utils.zig");
 
+pub const Cop0 = struct {
+    data_registers: [32]u32,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{
+            .data_registers = [_]u32{0} ** 32,
+        };
+    }
+
+    pub fn getDataRegister(self: *Self, register: u5) u32 {
+        return self.data_registers[register];
+    }
+
+    pub fn setDataRegister(self: *Self, register: u5, value: u32) void {
+        self.data_registers[register] = value;
+
+        // TODO: handle side effects
+    }
+};
+
 pub const Instruction = packed union {
     raw: u32,
     r: packed struct {
@@ -68,7 +90,7 @@ pub const Cpu = struct {
     is_delay_slot: bool,
 
     registers: [32]u32,
-    cp0_registers: [32]u32,
+    cop0: Cop0,
     hi: u32,
     lo: u32,
 
@@ -92,7 +114,7 @@ pub const Cpu = struct {
             .is_branch = false,
             .is_delay_slot = false,
             .registers = [_]u32{0xdeadfeed} ** 32,
-            .cp0_registers = [_]u32{0} ** 32,
+            .cop0 = Cop0.init(),
             .hi = 0xdeadfeed,
             .lo = 0xdeadfeed,
             .load = .{ .reg = 0, .value = 0 },
@@ -118,18 +140,8 @@ pub const Cpu = struct {
         self.next_load = .{ .reg = index, .value = value };
     }
 
-    fn getCp0Reg(self: *Self, rd: u5) u32 {
-        return self.cp0_registers[rd];
-    }
-
-    fn setCp0Reg(self: *Self, rd: u5, value: u32) void {
-        self.cp0_registers[rd] = value;
-
-        // TODO: handle side effects
-    }
-
     fn isCacheIsolated(self: *Self) bool {
-        const sr = self.getCp0Reg(12);
+        const sr = self.cop0.getDataRegister(12);
 
         return (sr & 0x00010000) != 0;
     }
@@ -142,15 +154,15 @@ pub const Cpu = struct {
         //     std.debug.print("{c}", .{char});
         // }
 
-        const current_cause = self.getCp0Reg(13);
+        const current_cause = self.cop0.getDataRegister(13);
         if (self.bus.intc.is_active()) {
-            self.setCp0Reg(13, current_cause | 0x0400);
+            self.cop0.setDataRegister(13, current_cause | 0x0400);
         } else {
-            self.setCp0Reg(13, current_cause & ~@as(u32, 0x0400));
+            self.cop0.setDataRegister(13, current_cause & ~@as(u32, 0x0400));
         }
 
         // check IEc and IM2
-        const sr = self.getCp0Reg(12);
+        const sr = self.cop0.getDataRegister(12);
         if (!self.is_branch and (sr & 0x01) != 0 and (sr & 0x0400) != 0) {
             if (self.bus.intc.is_active()) {
                 self.exception(.interrupt);
@@ -238,7 +250,9 @@ pub const Cpu = struct {
                 self.exception(.cop);
             },
             0b010010 => {
-                std.debug.panic("Unhandled instruction cop2", .{});
+                switch (instruction.cop_move.sub) {
+                    else => std.debug.print("NOPE: {b}\n", .{instruction.cop_move.sub}),
+                }
             },
             0b001111 => self.opLui(instruction),
             0b001101 => self.opOri(instruction),
@@ -299,33 +313,33 @@ pub const Cpu = struct {
     }
 
     fn exception(self: *Self, cause: Exception) void {
-        const sr = self.getCp0Reg(12);
+        const sr = self.cop0.getDataRegister(12);
         const handler: u32 = if ((sr & (1 << 22)) != 0) 0xbfc0_0180 else 0x8000_0080;
         const mode = sr & 0x3f;
 
         // update status reg
         const new_sr = sr & ~@as(u32, 0x3f) | (mode << 2) & 0x3f;
-        self.setCp0Reg(12, new_sr);
+        self.cop0.setDataRegister(12, new_sr);
 
         // update cause reg with the exception
-        const old_cause = self.getCp0Reg(13);
+        const old_cause = self.cop0.getDataRegister(13);
         const cause_code: u32 = @intFromEnum(cause);
         const new_cause = (old_cause & ~@as(u32, 0x7C)) | (cause_code << 2);
-        self.setCp0Reg(13, new_cause);
+        self.cop0.setDataRegister(13, new_cause);
 
         // save current pc in epc
         const epc = if (cause == .interrupt) self.pc else self.current_pc;
-        self.setCp0Reg(14, epc);
+        self.cop0.setDataRegister(14, epc);
 
         if (self.is_delay_slot) {
             // adjust epc to point and branch instruction
-            self.setCp0Reg(14, epc -% 4);
+            self.cop0.setDataRegister(14, epc -% 4);
 
             // set BD bit in the cause register
-            self.setCp0Reg(13, self.getCp0Reg(13) | 0x8000_0000);
+            self.cop0.setDataRegister(13, self.cop0.getDataRegister(13) | 0x8000_0000);
         } else {
             // clear BD bit in the cause register
-            self.setCp0Reg(13, self.getCp0Reg(13) & ~@as(u32, 0x8000_0000));
+            self.cop0.setDataRegister(13, self.cop0.getDataRegister(13) & ~@as(u32, 0x8000_0000));
         }
 
         self.pc = handler;
@@ -338,22 +352,22 @@ pub const Cpu = struct {
 
         const value = self.registers[c.rt];
 
-        self.setCp0Reg(c.rd, value);
+        self.cop0.setDataRegister(c.rd, value);
     }
 
     fn opMfc0(self: *Self, instruction: Instruction) void {
         const c = instruction.cop_move;
 
-        const value = self.getCp0Reg(c.rd);
+        const value = self.cop0.getDataRegister(c.rd);
 
         self.setRegDelayed(c.rt, value);
     }
 
     fn opRfe(self: *Self, _: Instruction) void {
-        const mode = self.getCp0Reg(12) & 0x3f;
+        const mode = self.cop0.getDataRegister(12) & 0x3f;
 
-        const new_sr = (self.getCp0Reg(12) & ~@as(u32, 0x3f)) | (mode >> 2);
-        self.setCp0Reg(12, new_sr);
+        const new_sr = (self.cop0.getDataRegister(12) & ~@as(u32, 0x3f)) | (mode >> 2);
+        self.cop0.setDataRegister(12, new_sr);
     }
 
     fn opSrav(self: *Self, instruction: Instruction) void {
