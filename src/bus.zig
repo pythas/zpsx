@@ -1,5 +1,6 @@
 const std = @import("std");
 const Ram = @import("ram.zig").Ram;
+const Joypad = @import("joypad.zig").Joypad;
 const InterruptController = @import("interrupt.zig").InterruptController;
 const Dma = @import("dma.zig").Dma;
 const Timers = @import("timers.zig").Timers;
@@ -39,6 +40,7 @@ pub const Bus = struct {
     allocator: std.mem.Allocator,
 
     ram: Ram,
+    joypad: Joypad,
     intc: InterruptController,
     dma: Dma,
     timers: Timers,
@@ -56,6 +58,7 @@ pub const Bus = struct {
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         const ram = try Ram.init(allocator);
+        const joypad = Joypad.init();
         const intc = InterruptController.init();
         const dma = Dma.init();
         const timers = Timers.init();
@@ -66,6 +69,7 @@ pub const Bus = struct {
         return .{
             .allocator = allocator,
             .ram = ram,
+            .joypad = joypad,
             .intc = intc,
             .dma = dma,
             .timers = timers,
@@ -145,6 +149,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
+            memory_map.joypad.start...memory_map.joypad.end => self.joypad.write16(address - memory_map.joypad.start, value),
             memory_map.intc.start...memory_map.intc.end => self.intc.write16(address - memory_map.intc.start, value),
             memory_map.timers.start...memory_map.timers.end => self.timers.write32(address - memory_map.timers.start, value),
             memory_map.spu.start...memory_map.spu.end => {

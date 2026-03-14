@@ -53,11 +53,11 @@ pub fn disassemble(instruction: Instruction, pc: u32, buf: []u8) ![]u8 {
             0b100010 => try std.fmt.bufPrint(buf, "sub {s}, {s}, {s}", .{ register_names[rd], register_names[rs], register_names[rt] }),
             else => try std.fmt.bufPrint(buf, "unknown r-type (0x{x:0>2})", .{funct}),
         },
-        0b010000 => switch (instruction.cop0_move.sub) {
+        0b010000 => switch (instruction.cop_move.sub) {
             0b00100 => try std.fmt.bufPrint(buf, "mtc0 {s}, r{d}", .{ register_names[rt], rd }),
             0b00000 => try std.fmt.bufPrint(buf, "mfc0 {s}, r{d}", .{ register_names[rt], rd }),
             0b10000 => try std.fmt.bufPrint(buf, "rfe", .{}),
-            else => try std.fmt.bufPrint(buf, "unknown cop0 (0x{x:0>2})", .{instruction.cop0_move.sub}),
+            else => try std.fmt.bufPrint(buf, "unknown cop0 (0x{x:0>2})", .{instruction.cop_move.sub}),
         },
         0b001111 => try std.fmt.bufPrint(buf, "lui {s}, 0x{x:0>4}", .{ register_names[rt], imm }),
         0b001101 => try std.fmt.bufPrint(buf, "ori {s}, {s}, 0x{x:0>4}", .{ register_names[rt], register_names[rs], imm }),

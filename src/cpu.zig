@@ -33,9 +33,8 @@ pub const Instruction = packed union {
         opcode: u6,
     },
 
-    cop0_move: packed struct {
-        sel: u3,
-        zeros: u8,
+    cop_move: packed struct {
+        zeros: u11,
         rd: u5,
         rt: u5,
         sub: u5,
@@ -69,7 +68,7 @@ pub const Cpu = struct {
     is_delay_slot: bool,
 
     registers: [32]u32,
-    cp0_registers: [32][8]u32,
+    cp0_registers: [32]u32,
     hi: u32,
     lo: u32,
 
@@ -93,7 +92,7 @@ pub const Cpu = struct {
             .is_branch = false,
             .is_delay_slot = false,
             .registers = [_]u32{0xdeadfeed} ** 32,
-            .cp0_registers = [_][8]u32{[_]u32{0} ** 8} ** 32,
+            .cp0_registers = [_]u32{0} ** 32,
             .hi = 0xdeadfeed,
             .lo = 0xdeadfeed,
             .load = .{ .reg = 0, .value = 0 },
@@ -119,18 +118,18 @@ pub const Cpu = struct {
         self.next_load = .{ .reg = index, .value = value };
     }
 
-    fn getCp0Reg(self: *Self, rd: u5, sel: u3) u32 {
-        return self.cp0_registers[rd][sel];
+    fn getCp0Reg(self: *Self, rd: u5) u32 {
+        return self.cp0_registers[rd];
     }
 
-    fn setCp0Reg(self: *Self, rd: u5, sel: u3, value: u32) void {
-        self.cp0_registers[rd][sel] = value;
+    fn setCp0Reg(self: *Self, rd: u5, value: u32) void {
+        self.cp0_registers[rd] = value;
 
         // TODO: handle side effects
     }
 
     fn isCacheIsolated(self: *Self) bool {
-        const sr = self.getCp0Reg(12, 0);
+        const sr = self.getCp0Reg(12);
 
         return (sr & 0x00010000) != 0;
     }
@@ -143,15 +142,15 @@ pub const Cpu = struct {
         //     std.debug.print("{c}", .{char});
         // }
 
-        const current_cause = self.getCp0Reg(13, 0);
+        const current_cause = self.getCp0Reg(13);
         if (self.bus.intc.is_active()) {
-            self.setCp0Reg(13, 0, current_cause | 0x0400);
+            self.setCp0Reg(13, current_cause | 0x0400);
         } else {
-            self.setCp0Reg(13, 0, current_cause & ~@as(u32, 0x0400));
+            self.setCp0Reg(13, current_cause & ~@as(u32, 0x0400));
         }
 
         // check IEc and IM2
-        const sr = self.getCp0Reg(12, 0);
+        const sr = self.getCp0Reg(12);
         if (!self.is_branch and (sr & 0x01) != 0 and (sr & 0x0400) != 0) {
             if (self.bus.intc.is_active()) {
                 self.exception(.interrupt);
@@ -223,7 +222,7 @@ pub const Cpu = struct {
                 }
             },
             0b010000 => {
-                switch (instruction.cop0_move.sub) {
+                switch (instruction.cop_move.sub) {
                     0b00100 => self.opMtc0(instruction),
                     0b00000 => self.opMfc0(instruction),
                     0b10000 => self.opRfe(instruction),
@@ -300,33 +299,33 @@ pub const Cpu = struct {
     }
 
     fn exception(self: *Self, cause: Exception) void {
-        const sr = self.getCp0Reg(12, 0);
+        const sr = self.getCp0Reg(12);
         const handler: u32 = if ((sr & (1 << 22)) != 0) 0xbfc0_0180 else 0x8000_0080;
         const mode = sr & 0x3f;
 
         // update status reg
         const new_sr = sr & ~@as(u32, 0x3f) | (mode << 2) & 0x3f;
-        self.setCp0Reg(12, 0, new_sr);
+        self.setCp0Reg(12, new_sr);
 
         // update cause reg with the exception
-        const old_cause = self.getCp0Reg(13, 0);
+        const old_cause = self.getCp0Reg(13);
         const cause_code: u32 = @intFromEnum(cause);
         const new_cause = (old_cause & ~@as(u32, 0x7C)) | (cause_code << 2);
-        self.setCp0Reg(13, 0, new_cause);
+        self.setCp0Reg(13, new_cause);
 
         // save current pc in epc
         const epc = if (cause == .interrupt) self.pc else self.current_pc;
-        self.setCp0Reg(14, 0, epc);
+        self.setCp0Reg(14, epc);
 
         if (self.is_delay_slot) {
             // adjust epc to point and branch instruction
-            self.setCp0Reg(14, 0, epc -% 4);
+            self.setCp0Reg(14, epc -% 4);
 
             // set BD bit in the cause register
-            self.setCp0Reg(13, 0, self.getCp0Reg(13, 0) | 0x8000_0000);
+            self.setCp0Reg(13, self.getCp0Reg(13) | 0x8000_0000);
         } else {
             // clear BD bit in the cause register
-            self.setCp0Reg(13, 0, self.getCp0Reg(13, 0) & ~@as(u32, 0x8000_0000));
+            self.setCp0Reg(13, self.getCp0Reg(13) & ~@as(u32, 0x8000_0000));
         }
 
         self.pc = handler;
@@ -335,26 +334,26 @@ pub const Cpu = struct {
 
     // cop0
     fn opMtc0(self: *Self, instruction: Instruction) void {
-        const c = instruction.cop0_move;
+        const c = instruction.cop_move;
 
         const value = self.registers[c.rt];
 
-        self.setCp0Reg(c.rd, c.sel, value);
+        self.setCp0Reg(c.rd, value);
     }
 
     fn opMfc0(self: *Self, instruction: Instruction) void {
-        const c = instruction.cop0_move;
+        const c = instruction.cop_move;
 
-        const value = self.getCp0Reg(c.rd, c.sel);
+        const value = self.getCp0Reg(c.rd);
 
         self.setRegDelayed(c.rt, value);
     }
 
     fn opRfe(self: *Self, _: Instruction) void {
-        const mode = self.getCp0Reg(12, 0) & 0x3f;
+        const mode = self.getCp0Reg(12) & 0x3f;
 
-        const new_sr = (self.getCp0Reg(12, 0) & ~@as(u32, 0x3f)) | (mode >> 2);
-        self.setCp0Reg(12, 0, new_sr);
+        const new_sr = (self.getCp0Reg(12) & ~@as(u32, 0x3f)) | (mode >> 2);
+        self.setCp0Reg(12, new_sr);
     }
 
     fn opSrav(self: *Self, instruction: Instruction) void {

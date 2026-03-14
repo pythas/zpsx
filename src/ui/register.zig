@@ -43,14 +43,14 @@ pub const RegisterWindow = struct {
 
             ig.igSeparator();
             ig.igText("CP0 Registers");
-            ig.igText("SR:    0x%08X", cpu.cp0_registers[12][0]);
-            ig.igText("Cause: 0x%08X", cpu.cp0_registers[13][0]);
-            ig.igText("EPC:   0x%08X", cpu.cp0_registers[14][0]);
+            ig.igText("SR:    0x%08X", cpu.cp0_registers[12]);
+            ig.igText("Cause: 0x%08X", cpu.cp0_registers[13]);
+            ig.igText("EPC:   0x%08X", cpu.cp0_registers[14]);
 
             ig.igSeparator();
             ig.igText("All CP0 Registers (sel 0)");
             for (0..32) |i| {
-                ig.igText("r%d: 0x%08X", @as(i32, @intCast(i)), cpu.cp0_registers[i][0]);
+                ig.igText("r%d: 0x%08X", @as(i32, @intCast(i)), cpu.cp0_registers[i]);
                 if (i % 2 == 0) {
                     ig.igSameLine();
                 }
