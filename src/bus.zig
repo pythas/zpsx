@@ -228,6 +228,7 @@ pub const Bus = struct {
                             0x00ff_ffff
                         else
                             (address -% 4) & 0x001f_ffff,
+                        .gpu => self.gpu.read32(0),
                         else => std.debug.panic("Unhandled DMA block ToRam for channel {}", .{channel_index}),
                     };
 

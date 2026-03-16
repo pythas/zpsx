@@ -538,6 +538,11 @@ pub const Gpu = struct {
         switch (opcode) {
             0x00 => {},
             0x01 => self.gp0ResetCommandBuffer(),
+            0x02 => self.gp0FillRectangle(
+                self.gp0_buffer[0],
+                self.gp0_buffer[1],
+                self.gp0_buffer[2],
+            ),
             0x28 => self.gp0FlatQuad(
                 self.gp0_buffer[1],
                 self.gp0_buffer[2],
@@ -588,6 +593,18 @@ pub const Gpu = struct {
     fn gp0ResetCommandBuffer(self: *Self) void {
         _ = self;
         // TODO: "resets the command buffer and CLUT cache."
+    }
+
+    fn gp0FillRectangle(self: *Self, c: u32, xy: u32, wh: u32) void {
+        const color = Color.fromWord(c);
+        const top_left = Point.fromWord(xy);
+        const size = Point.fromWord(wh);
+
+        std.debug.print("COLOR: {d} {d} {d}\n", .{ color.r, color.g, color.b });
+        std.debug.print("TOPLEFT: {d} {d}\n", .{ top_left.x, top_left.y });
+        std.debug.print("SIZE: {d} {d}\n\n", .{ size.x, size.y });
+
+        _ = self;
     }
 
     fn gp0FlatQuad(
