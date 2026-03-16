@@ -183,12 +183,14 @@ pub const Cpu = struct {
     }
 
     pub fn step(self: *Self) void {
-        // // tty
-        // const pc = self.pc & 0x1fff_ffff;
-        // if (pc == 0xa0 and self.getReg(9) == 0x3c or (pc == 0xb0 and self.getReg(9) == 0x3d)) {
-        //     const char: u8 = @truncate(self.getReg(4));
-        //     std.debug.print("{c}", .{char});
-        // }
+        self.cycles += 1;
+        self.bus.timers.step(1);
+        self.bus.cdrom.step(1, &self.bus.intc);
+
+        // irq
+        if (self.cycles % 564480 == 0) {
+            self.bus.intc.trigger(.vblank);
+        }
 
         const current_cause = self.cop0.getDataRegister(13);
         if (self.bus.intc.is_active()) {
@@ -205,9 +207,11 @@ pub const Cpu = struct {
             }
         }
 
-        // irq
-        if (self.cycles % 564480 == 0) {
-            self.bus.intc.trigger(.vblank);
+        // tty
+        const pc = self.pc & 0x1fff_ffff;
+        if (pc == 0xa0 and self.getReg(9) == 0x3c or (pc == 0xb0 and self.getReg(9) == 0x3d)) {
+            const char: u8 = @truncate(self.getReg(4));
+            std.debug.print("{c}", .{char});
         }
 
         const instruction: Instruction = @bitCast(self.bus.read32(self.pc));
@@ -222,8 +226,6 @@ pub const Cpu = struct {
         self.pc = self.next_pc;
         self.next_pc +%= 4;
 
-        self.cycles += 1;
-
         self.load = self.next_load;
         self.next_load = .{ .reg = 0, .value = 0 };
 
@@ -231,9 +233,6 @@ pub const Cpu = struct {
 
         self.is_delay_slot = self.is_branch;
         self.is_branch = false;
-
-        self.bus.timers.step(1);
-        self.bus.cdrom.step(1, &self.bus.intc);
 
         switch (instruction.r.opcode) {
             0b000000 => {
