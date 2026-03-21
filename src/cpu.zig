@@ -135,6 +135,10 @@ pub const Cpu = struct {
 
     current_write: struct { reg: u5, value: u32 },
 
+    history_pc: [8]u32,
+    history_instruction: [8]u32,
+    history_index: usize,
+
     bus: *Bus,
 
     const Self = @This();
@@ -146,17 +150,27 @@ pub const Cpu = struct {
             .pc = pc,
             .next_pc = pc +% 4,
             .current_pc = pc,
+
             .cycles = 0,
+
             .is_branch = false,
             .is_delay_slot = false,
+
             .registers = [_]u32{0xdeadfeed} ** 32,
             .cop0 = Cop0.init(),
             .cop2 = Cop2.init(),
             .hi = 0xdeadfeed,
             .lo = 0xdeadfeed,
+
             .load = .{ .reg = 0, .value = 0 },
             .next_load = .{ .reg = 0, .value = 0 },
+
             .current_write = .{ .reg = 0, .value = 0 },
+
+            .history_pc = [_]u32{0} ** 8,
+            .history_instruction = [_]u32{0} ** 8,
+            .history_index = 0,
+
             .bus = bus,
         };
     }
@@ -225,6 +239,10 @@ pub const Cpu = struct {
 
         const instruction: Instruction = @bitCast(self.bus.read32(self.pc));
         self.current_pc = self.pc;
+
+        self.history_pc[self.history_index] = self.current_pc;
+        self.history_instruction[self.history_index] = instruction.raw;
+        self.history_index = (self.history_index + 1) % 8;
 
         // check alignment
         if (self.current_pc % 4 != 0) {
@@ -342,25 +360,22 @@ pub const Cpu = struct {
             else => self.exception(.reserved_instruction),
         }
 
-        // apply pending load
-        if (self.load.reg != 0 and
-            self.load.reg != self.next_load.reg)
-        {
-            self.registers[self.load.reg] = self.load.value;
+        defer {
+            // apply pending load
+            if (self.load.reg != 0 and
+                self.load.reg != self.next_load.reg)
+            {
+                self.registers[self.load.reg] = self.load.value;
+            }
+
+            // apply current write
+            if (self.current_write.reg != 0) {
+                self.registers[self.current_write.reg] = self.current_write.value;
+            }
+
+            // hardwire $0 back to 0
+            self.registers[0] = 0;
         }
-
-        // apply current write
-        if (self.current_write.reg != 0) {
-            self.registers[self.current_write.reg] = self.current_write.value;
-        }
-
-        // hardwire $0 back to 0
-        self.registers[0] = 0;
-    }
-
-    fn branch(self: *Self, offset: u32) void {
-        self.next_pc = self.pc +% (offset << 2);
-        self.is_branch = true;
     }
 
     fn exception(self: *Self, cause: Exception) void {
@@ -369,7 +384,7 @@ pub const Cpu = struct {
         const mode = sr & 0x3f;
 
         // update status reg
-        const new_sr = sr & ~@as(u32, 0x3f) | (mode << 2) & 0x3f;
+        const new_sr = (sr & ~@as(u32, 0x3f)) | ((mode << 2) & 0x3f);
         self.cop0.setDataRegister(12, new_sr);
 
         // update cause reg with the exception
@@ -406,7 +421,18 @@ pub const Cpu = struct {
         const value = self.registers[c.rt];
 
         switch (c.opcode) {
-            0b010000 => self.cop0.setDataRegister(c.rd, value),
+            0b010000 => {
+                switch (c.rd) {
+                    13 => {
+                        // TODO: handle this in cop0 instead
+                        const current_cause = self.cop0.getDataRegister(13);
+                        const mask: u32 = 0x0000_0300;
+                        self.cop0.setDataRegister(13, (current_cause & ~mask) | (value & mask));
+                    },
+                    15 => {},
+                    else => self.cop0.setDataRegister(c.rd, value),
+                }
+            },
             else => unreachable,
         }
     }
@@ -503,8 +529,10 @@ pub const Cpu = struct {
         const i = instruction.i;
 
         if (self.getReg(i.rs) != self.getReg(i.rt)) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opAddi(self: *Self, instruction: Instruction) void {
@@ -599,8 +627,10 @@ pub const Cpu = struct {
         const i = instruction.i;
 
         if (self.getReg(i.rs) == self.getReg(i.rt)) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opBgtz(self: *Self, instruction: Instruction) void {
@@ -609,8 +639,10 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value > 0) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opBlez(self: *Self, instruction: Instruction) void {
@@ -619,8 +651,10 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value <= 0) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opLbu(self: *Self, instruction: Instruction) void {
@@ -643,8 +677,10 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value < 0) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opBgez(self: *Self, instruction: Instruction) void {
@@ -653,8 +689,10 @@ pub const Cpu = struct {
         const value: i32 = @bitCast(self.getReg(i.rs));
 
         if (value >= 0) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opBltzal(self: *Self, instruction: Instruction) void {
@@ -665,8 +703,10 @@ pub const Cpu = struct {
         self.setReg(31, self.next_pc);
 
         if (value < 0) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opBgezal(self: *Self, instruction: Instruction) void {
@@ -677,8 +717,10 @@ pub const Cpu = struct {
         self.setReg(31, self.next_pc);
 
         if (value >= 0) {
-            self.branch(utils.signExtend16(i.imm));
+            self.next_pc = self.pc +% (utils.signExtend16(i.imm) << 2);
         }
+
+        self.is_branch = true;
     }
 
     fn opSlti(self: *Self, instruction: Instruction) void {
