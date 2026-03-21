@@ -10,6 +10,7 @@ pub const UiState = struct {
     registers: WindowConfig,
     disassembly: WindowConfig,
     vram: WindowConfig,
+    display: WindowConfig,
 
     pub fn init() UiState {
         return .{
@@ -26,6 +27,11 @@ pub const UiState = struct {
             .vram = .{
                 .pos = .{ .x = 320, .y = 30 },
                 .size = .{ .x = 400, .y = 290 },
+                .visible = true,
+            },
+            .display = .{
+                .pos = .{ .x = 320 + 400, .y = 30 },
+                .size = .{ .x = 640, .y = 480 },
                 .visible = true,
             },
         };

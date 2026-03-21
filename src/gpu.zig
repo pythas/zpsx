@@ -434,12 +434,7 @@ pub const Gpu = struct {
     pub fn read32(self: *Self, offset: u32) u32 {
         return switch (offset) {
             0x00 => self.gp0Read(),
-            0x04 => {
-                // HACK: force vertical resolution to 240
-                var fake_stat = self.gpustat;
-                fake_stat.vertical_resolution = ._240;
-                return @bitCast(fake_stat);
-            },
+            0x04 => return @bitCast(self.gpustat),
             else => {
                 std.debug.print("gpu: Unhandled read32 from offset: {x}\n", .{offset});
                 return 0;

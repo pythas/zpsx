@@ -8,7 +8,7 @@ const simgui = sokol.imgui;
 const Emulator = @import("../emulator.zig").Emulator;
 const WindowConfig = @import("state.zig").WindowConfig;
 
-pub const VramWindow = struct {
+pub const DisplayWindow = struct {
     allocator: std.mem.Allocator,
 
     image: sg.Image,
@@ -80,9 +80,27 @@ pub const VramWindow = struct {
         ig.igSetNextWindowPos(config.pos, ig.ImGuiCond_FirstUseEver);
         ig.igSetNextWindowSize(config.size, ig.ImGuiCond_FirstUseEver);
 
-        if (ig.igBegin("Vram", &config.visible, 0)) {
+        if (ig.igBegin("Display", &config.visible, 0)) {
+            const display_x: f32 = @floatFromInt(gpu.display_vram_x_start);
+            const display_y: f32 = @floatFromInt(gpu.display_vram_y_start);
+
+            const display_w: f32 = @floatFromInt(gpu.gpustat.horizontalResolution());
+            const display_h: f32 = @floatFromInt(gpu.gpustat.verticalResolution());
+
+            const vram_w: f32 = 1024.0;
+            const vram_h: f32 = 512.0;
+
+            const uv0 = ig.ImVec2{
+                .x = display_x / vram_w,
+                .y = display_y / vram_h,
+            };
+            const uv1 = ig.ImVec2{
+                .x = (display_x + display_w) / vram_w,
+                .y = (display_y + display_h) / vram_h,
+            };
+
             const w_size = ig.igGetContentRegionAvail();
-            const aspect: f32 = 1024.0 / 512.0;
+            const aspect: f32 = 4.0 / 3.0;
 
             var draw_w = w_size.x;
             var draw_h = w_size.x / aspect;
@@ -95,7 +113,9 @@ pub const VramWindow = struct {
             ig.igSetCursorPosX((w_size.x - draw_w) * 0.5 + ig.igGetCursorPosX());
             ig.igSetCursorPosY((w_size.y - draw_h) * 0.5 + ig.igGetCursorPosY());
 
-            ig.igImage(
+            // pub extern fn igImageEx(tex_ref: ImTextureRef, image_size: ImVec2, uv0: ImVec2, uv1: ImVec2) void;
+
+            ig.igImageEx(
                 .{
                     ._TexID = simgui.imtextureidWithSampler(
                         self.view,
@@ -103,6 +123,8 @@ pub const VramWindow = struct {
                     ),
                 },
                 .{ .x = draw_w, .y = draw_h },
+                uv0,
+                uv1,
             );
         }
         ig.igEnd();
