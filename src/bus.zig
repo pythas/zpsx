@@ -1,5 +1,6 @@
 const std = @import("std");
 const Ram = @import("ram.zig").Ram;
+const Scratchpad = @import("scratchpad.zig").Scratchpad;
 const Joypad = @import("joypad.zig").Joypad;
 const InterruptController = @import("interrupt.zig").InterruptController;
 const Dma = @import("dma.zig").Dma;
@@ -40,6 +41,7 @@ pub const Bus = struct {
     allocator: std.mem.Allocator,
 
     ram: Ram,
+    scratchpad: Scratchpad,
     joypad: Joypad,
     intc: InterruptController,
     dma: Dma,
@@ -58,6 +60,7 @@ pub const Bus = struct {
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         const ram = try Ram.init(allocator);
+        const scratchpad = try Scratchpad.init(allocator);
         const joypad = Joypad.init();
         const intc = InterruptController.init();
         const dma = Dma.init();
@@ -69,6 +72,7 @@ pub const Bus = struct {
         return .{
             .allocator = allocator,
             .ram = ram,
+            .scratchpad = scratchpad,
             .joypad = joypad,
             .intc = intc,
             .dma = dma,
@@ -101,6 +105,7 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read32(address),
+            memory_map.scratchpad.start...memory_map.scratchpad.end => self.scratchpad.read32(address - memory_map.scratchpad.start),
             memory_map.intc.start...memory_map.intc.end => @as(u32, self.intc.read16(address - memory_map.intc.start)),
             memory_map.dma.start...memory_map.dma.end => self.dma.read32(address - memory_map.dma.start),
             memory_map.timers.start...memory_map.timers.end => self.timers.read32(address - memory_map.timers.start),
@@ -117,6 +122,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write32(address, value),
+            memory_map.scratchpad.start...memory_map.scratchpad.end => self.scratchpad.write32(address - memory_map.scratchpad.start, value),
             memory_map.intc.start...memory_map.intc.end => self.intc.write16(address - memory_map.intc.start, @truncate(value)),
             memory_map.dma.start...memory_map.dma.end => self.dma.write32(address - memory_map.dma.start, value),
             memory_map.timers.start...memory_map.timers.end => self.timers.write32(address - memory_map.timers.start, value),
@@ -133,6 +139,7 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read16(address),
+            memory_map.scratchpad.start...memory_map.scratchpad.end => self.scratchpad.read16(address - memory_map.scratchpad.start),
             memory_map.joypad.start...memory_map.joypad.end => self.joypad.read16(address - memory_map.joypad.start),
             memory_map.intc.start...memory_map.intc.end => self.intc.read16(address - memory_map.intc.start),
             memory_map.timers.start...memory_map.timers.end => self.timers.read16(address - memory_map.timers.start),
@@ -151,6 +158,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write16(address, value),
+            memory_map.scratchpad.start...memory_map.scratchpad.end => self.scratchpad.write16(address - memory_map.scratchpad.start, value),
             memory_map.joypad.start...memory_map.joypad.end => self.joypad.write16(address - memory_map.joypad.start, value),
             memory_map.intc.start...memory_map.intc.end => self.intc.write16(address - memory_map.intc.start, value),
             memory_map.timers.start...memory_map.timers.end => self.timers.write32(address - memory_map.timers.start, value),
@@ -166,6 +174,7 @@ pub const Bus = struct {
 
         return switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.read8(address),
+            memory_map.scratchpad.start...memory_map.scratchpad.end => self.scratchpad.read8(address - memory_map.scratchpad.start),
             memory_map.joypad.start...memory_map.joypad.end => self.joypad.read8(address - memory_map.joypad.start),
             memory_map.exp1.start...memory_map.exp1.end => 0xff,
             memory_map.cdrom.start...memory_map.cdrom.end => self.cdrom.read8(address - memory_map.cdrom.start),
@@ -181,6 +190,7 @@ pub const Bus = struct {
 
         switch (address) {
             memory_map.ram.start...memory_map.ram.end => self.ram.write8(address, value),
+            memory_map.scratchpad.start...memory_map.scratchpad.end => self.scratchpad.write8(address - memory_map.scratchpad.start, value),
             memory_map.joypad.start...memory_map.joypad.end => self.joypad.write8(address - memory_map.joypad.start, value),
             memory_map.cdrom.start...memory_map.cdrom.end => self.cdrom.write8(address - memory_map.cdrom.start, value),
             memory_map.exp2.start...memory_map.exp2.end => std.debug.print("bus: Unhandled write8 to EXPANSION_2\n", .{}),
@@ -269,7 +279,8 @@ pub const Bus = struct {
             unreachable;
         }
 
-        while (true) {
+        var max_nodes: usize = 50_000;
+        while (max_nodes > 0) : (max_nodes -= 1) {
             const header = self.read32(address);
 
             var remaining = header >> 24;

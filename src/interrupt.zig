@@ -44,7 +44,7 @@ pub const InterruptController = struct {
     }
 
     pub fn write16(self: *Self, offset: u32, value: u16) void {
-        std.debug.print("IRQ WRITE: {x} {b}\n", .{ offset, value });
+        // std.debug.print("IRQ WRITE: {x} {b}\n", .{ offset, value });
 
         switch (offset) {
             0x00 => self.status &= value, // inverted acknowledge

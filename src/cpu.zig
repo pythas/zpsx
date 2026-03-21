@@ -106,6 +106,7 @@ const Exception = enum(u8) {
     load_address_misaligned = 0x04,
     store_address_misaligned = 0x05,
     cop = 0x0b,
+    reserved_instruction = 0x0a,
 };
 
 const LoadDelaySlot = struct {
@@ -184,7 +185,7 @@ pub const Cpu = struct {
 
     pub fn step(self: *Self) void {
         self.cycles += 1;
-        self.bus.timers.step(1);
+        self.bus.timers.step(1, &self.bus.intc);
         self.bus.cdrom.step(1, &self.bus.intc);
 
         // irq
@@ -207,11 +208,19 @@ pub const Cpu = struct {
             }
         }
 
-        // tty
-        const pc = self.pc & 0x1fff_ffff;
-        if (pc == 0xa0 and self.getReg(9) == 0x3c or (pc == 0xb0 and self.getReg(9) == 0x3d)) {
-            const char: u8 = @truncate(self.getReg(4));
-            std.debug.print("{c}", .{char});
+        // BIOS call & tty
+        const physical_pc = self.pc & 0x1fff_ffff;
+        if (physical_pc == 0xa0 or physical_pc == 0xb0 or physical_pc == 0xc0) {
+            const fn_id = self.getReg(9);
+
+            if ((physical_pc == 0xa0 and fn_id == 0x3c) or (physical_pc == 0xb0 and fn_id == 0x3d)) {
+                const char: u8 = @truncate(self.getReg(4));
+                std.debug.print("{c}", .{char});
+            } else {
+                std.debug.print("\n", .{});
+                // const table: u8 = if (physical_pc == 0xa0) 'A' else if (physical_pc == 0xb0) 'B' else 'C';
+                // std.debug.print("[BIOS] Call: {c}0_{X:0>2}\n", .{ table, fn_id });
+            }
         }
 
         const instruction: Instruction = @bitCast(self.bus.read32(self.pc));
@@ -307,11 +316,15 @@ pub const Cpu = struct {
             0b100100 => self.opLbu(instruction),
             0b000001 => {
                 switch (instruction.i.rt) {
-                    0b00000 => self.opBltz(instruction),
-                    0b00001 => self.opBgez(instruction),
                     0b10000 => self.opBltzal(instruction),
                     0b10001 => self.opBgezal(instruction),
-                    else => unreachable,
+                    else => {
+                        if (instruction.i.rt & 1 == 0) {
+                            self.opBltz(instruction);
+                        } else {
+                            self.opBgez(instruction);
+                        }
+                    },
                 }
             },
             0b001010 => self.opSlti(instruction),
@@ -326,11 +339,13 @@ pub const Cpu = struct {
 
             0b000010 => self.opJ(instruction),
             0b000011 => self.opJal(instruction),
-            else => unreachable,
+            else => self.exception(.reserved_instruction),
         }
 
         // apply pending load
-        if (self.load.reg != 0) {
+        if (self.load.reg != 0 and
+            self.load.reg != self.next_load.reg)
+        {
             self.registers[self.load.reg] = self.load.value;
         }
 
@@ -360,7 +375,7 @@ pub const Cpu = struct {
         // update cause reg with the exception
         const old_cause = self.cop0.getDataRegister(13);
         const cause_code: u32 = @intFromEnum(cause);
-        const new_cause = (old_cause & ~@as(u32, 0x7C)) | (cause_code << 2);
+        const new_cause = (old_cause & ~@as(u32, 0x7c)) | (cause_code << 2);
         self.cop0.setDataRegister(13, new_cause);
 
         // save current pc in epc
@@ -374,6 +389,8 @@ pub const Cpu = struct {
             // set BD bit in the cause register
             self.cop0.setDataRegister(13, self.cop0.getDataRegister(13) | 0x8000_0000);
         } else {
+            // self.cop0.setDataRegister(14, self.current_pc);
+
             // clear BD bit in the cause register
             self.cop0.setDataRegister(13, self.cop0.getDataRegister(13) & ~@as(u32, 0x8000_0000));
         }
@@ -408,7 +425,7 @@ pub const Cpu = struct {
     fn opRfe(self: *Self, _: Instruction) void {
         const mode = self.cop0.getDataRegister(12) & 0x3f;
 
-        const new_sr = (self.cop0.getDataRegister(12) & ~@as(u32, 0x3f)) | (mode >> 2);
+        const new_sr = (self.cop0.getDataRegister(12) & ~@as(u32, 0xf)) | (mode >> 2);
         self.cop0.setDataRegister(12, new_sr);
     }
 
@@ -667,7 +684,7 @@ pub const Cpu = struct {
     fn opSlti(self: *Self, instruction: Instruction) void {
         const i = instruction.i;
 
-        const value: u32 = @intFromBool(@as(i32, @bitCast(self.getReg(i.rs))) < utils.signExtend16(i.imm));
+        const value: u32 = @intFromBool(@as(i32, @bitCast(self.getReg(i.rs))) < @as(i32, @bitCast(utils.signExtend16(i.imm))));
 
         self.setReg(i.rt, value);
     }

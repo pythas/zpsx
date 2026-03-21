@@ -121,9 +121,18 @@ pub const PolygonOpcode = packed struct(u8) {
     command_group: u3,
 };
 
+pub const RectangleOpcode = packed struct(u8) {
+    semi_transparent: bool,
+    is_textured: bool,
+    raw_texture: bool,
+    size: u2,
+    command_group: u3,
+};
+
 const GP0_LENGTHS = init_lengths: {
     var lengths = [_]usize{1} ** 256;
 
+    // polygons
     for (0x20..0x40) |opcode| {
         const op: PolygonOpcode = @bitCast(@as(u8, @intCast(opcode)));
 
@@ -132,6 +141,18 @@ const GP0_LENGTHS = init_lengths: {
 
         if (op.is_gouraud) len += vertices - 1;
         if (op.is_textured) len += vertices;
+
+        lengths[opcode] = len;
+    }
+
+    // rectangles
+    for (0x60..0x80) |opcode| {
+        const op: RectangleOpcode = @bitCast(@as(u8, @intCast(opcode)));
+
+        var len: usize = 2;
+
+        if (op.size == 0) len += 1;
+        if (op.is_textured) len += 1;
 
         lengths[opcode] = len;
     }
@@ -309,6 +330,7 @@ pub const Gpu = struct {
 
     vram: []u16,
 
+    gpuread: u32,
     gpustat: GpuStatusRegister,
 
     texture_rect_x_flip: bool,
@@ -362,6 +384,7 @@ pub const Gpu = struct {
 
             .vram = vram,
 
+            .gpuread = 0,
             .gpustat = @bitCast(@as(u32, 0x1c802000)),
 
             .texture_rect_x_flip = false,
@@ -440,6 +463,7 @@ pub const Gpu = struct {
                     0x06 => self.gp1DisplayHorizontalRange(value),
                     0x07 => self.gp1DisplayVerticalRange(value),
                     0x08 => self.gp1DisplayMode(value),
+                    0x10 => self.gp1Read(value),
                     else => std.debug.panic("gpu: Unhandled GP1 opcode: {x}\n", .{opcode}),
                 }
             },
@@ -528,13 +552,14 @@ pub const Gpu = struct {
             return data;
         }
 
-        return 0;
+        return self.gpuread;
     }
 
     fn gp0ExecuteCommand(self: *Self) void {
         const header = self.gp0_buffer[0];
         const opcode: u8 = @truncate(header >> 24);
 
+        // TODO: check ranges, eg. 0x20...0x3f, and use generic methods like gp0DrawPolygon
         switch (opcode) {
             0x00 => {},
             0x01 => self.gp0ResetCommandBuffer(),
@@ -577,6 +602,10 @@ pub const Gpu = struct {
                 self.gp0_buffer[5],
                 self.gp0_buffer[6],
                 self.gp0_buffer[7],
+            ),
+            0x68 => self.gp0Dot(
+                self.gp0_buffer[0],
+                self.gp0_buffer[1],
             ),
             0xa0 => self.gp0LoadImage(self.gp0_buffer[1], self.gp0_buffer[2]),
             0xc0 => self.gp0StoreImage(self.gp0_buffer[1], self.gp0_buffer[2]),
@@ -712,6 +741,22 @@ pub const Gpu = struct {
         const color3 = Color.fromWord(c3);
 
         self.renderer.pushShadedTriangle(self, p1, color1, p2, color2, p3, color3);
+    }
+
+    fn gp0Dot(self: *Self, c: u32, xy: u32) void {
+        const dx = self.drawing_x_offset;
+        const dy = self.drawing_y_offset;
+
+        const color = Color.fromWord(c);
+        const point = Point.fromWord(xy).offset(dx, dy);
+
+        self.putPixel(
+            @as(i16, @intCast(point.x)),
+            @as(i16, @intCast(point.y)),
+            color.r,
+            color.g,
+            color.b,
+        );
     }
 
     fn gp0LoadImage(self: *Self, word1: u32, word2: u32) void {
@@ -877,5 +922,14 @@ pub const Gpu = struct {
         self.gpustat.vertical_interlace = cmd.vertical_interlace;
         self.gpustat.horizontal_resolution_2 = cmd.horizontal_resolution_2;
         self.gpustat.flip_screen_horizontally = cmd.flip_screen_horizontally;
+    }
+
+    fn gp1Read(self: *Self, value: u32) void {
+        const index = value & 0x00ff_ffff;
+
+        self.gpuread = switch (index) {
+            7 => 2,
+            else => unreachable,
+        };
     }
 };

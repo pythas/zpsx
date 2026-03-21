@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const InterruptController = @import("interrupt.zig").InterruptController;
+
 pub const TimerCurrentValue = packed struct(u32) {
     value: u16,
     garbage: u16,
@@ -46,6 +48,8 @@ pub const Timers = struct {
     timers: [3]Timer,
 
     sys_clock_timer: u32,
+    dot_clock_timer: u32,
+    hblank_timer: u32,
 
     const Self = @This();
 
@@ -53,6 +57,8 @@ pub const Timers = struct {
         return .{
             .timers = [_]Timer{Timer.init()} ** 3,
             .sys_clock_timer = 0,
+            .dot_clock_timer = 0,
+            .hblank_timer = 0,
         };
     }
 
@@ -122,21 +128,34 @@ pub const Timers = struct {
         }
     }
 
-    pub fn step(self: *Self, cycles: u32) void {
+    pub fn step(self: *Self, cycles: u32, intc: *InterruptController) void {
         self.sys_clock_timer += cycles;
-
         const div8_ticks = self.sys_clock_timer / 8;
         self.sys_clock_timer %= 8;
 
-        for (&self.timers, 0..) |*timer, i| {
-            var ticks = cycles;
+        // cpu * 11 / 7
+        self.dot_clock_timer += cycles * 11;
+        const dot_ticks = self.dot_clock_timer / 7;
+        self.dot_clock_timer %= 7;
 
-            if (i == 2) {
-                if (timer.mode.clock_source == 2 or timer.mode.clock_source == 3) {
-                    ticks = div8_ticks;
-                }
-            } else {
-                // TODO: ...
+        // one tick per 3413 cpu cycles
+        self.hblank_timer += cycles;
+        var hblank_ticks: u32 = 0;
+        if (self.hblank_timer >= 3413) {
+            hblank_ticks = 1;
+            self.hblank_timer -= 3413;
+        }
+
+        for (&self.timers, 0..) |*timer, i| {
+            var ticks: u32 = 0;
+            const source = timer.mode.clock_source;
+
+            if (i == 0) {
+                ticks = if (source == 1 or source == 3) dot_ticks else cycles;
+            } else if (i == 1) {
+                ticks = if (source == 1 or source == 3) hblank_ticks else cycles;
+            } else if (i == 2) {
+                ticks = if (source == 2 or source == 3) div8_ticks else cycles;
             }
 
             if (ticks == 0) continue;
@@ -152,16 +171,29 @@ pub const Timers = struct {
                         timer.current.value = 0;
                     }
 
-                    // TODO: trigger IRQ if timer.mode.irq_when_target == 1
+                    if (timer.mode.irq_when_target == 1) {
+                        triggerIrq(i, intc);
+                    }
                 }
 
-                // Did we overflow?
+                // overflow
                 if (timer.current.value == 0xffff) {
                     timer.mode.reached_ffff = 1;
 
-                    // TODO: trigger IRQ if timer.mode.irq_when_ffff == 1
+                    if (timer.mode.irq_when_ffff == 1) {
+                        triggerIrq(i, intc);
+                    }
                 }
             }
+        }
+    }
+
+    fn triggerIrq(index: usize, intc: *InterruptController) void {
+        switch (index) {
+            0 => intc.trigger(.timer0),
+            1 => intc.trigger(.timer1),
+            2 => intc.trigger(.timer2),
+            else => unreachable,
         }
     }
 };
