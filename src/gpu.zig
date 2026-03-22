@@ -123,9 +123,9 @@ pub const PolygonOpcode = packed struct(u8) {
 };
 
 pub const RectangleOpcode = packed struct(u8) {
+    raw_texture: bool,
     semi_transparent: bool,
     is_textured: bool,
-    raw_texture: bool,
     size: u2,
     command_group: u3,
 };
@@ -686,11 +686,11 @@ pub const Gpu = struct {
             const t2 = TextureCoord.fromWord(uv2);
             const t3 = TextureCoord.fromWord(uv3);
 
-            self.renderer.pushTexturedTriangle(self, p1, c1, t1, p2, c2, t2, p3, c3, t3, tpage, clut);
+            self.renderer.pushTexturedTriangle(self, p1, c1, t1, p2, c2, t2, p3, c3, t3, tpage, clut, op.raw_texture);
 
             if (op.is_quad) {
                 const t4 = TextureCoord.fromWord(uv4);
-                self.renderer.pushTexturedTriangle(self, p2, c2, t2, p3, c3, t3, p4, c4, t4, tpage, clut);
+                self.renderer.pushTexturedTriangle(self, p2, c2, t2, p3, c3, t3, p4, c4, t4, tpage, clut, op.raw_texture);
             }
         } else {
             self.renderer.pushShadedTriangle(self, p1, c1, p2, c2, p3, c3);
@@ -765,8 +765,8 @@ pub const Gpu = struct {
             const t3 = TextureCoord{ .u = u, .v = v +% tex_height };
             const t4 = TextureCoord{ .u = u +% tex_width, .v = v +% tex_height };
 
-            self.renderer.pushTexturedTriangle(self, p1, color, t1, p2, color, t2, p3, color, t3, tpage, clut);
-            self.renderer.pushTexturedTriangle(self, p2, color, t2, p3, color, t3, p4, color, t4, tpage, clut);
+            self.renderer.pushTexturedTriangle(self, p1, color, t1, p2, color, t2, p3, color, t3, tpage, clut, op.raw_texture);
+            self.renderer.pushTexturedTriangle(self, p2, color, t2, p3, color, t3, p4, color, t4, tpage, clut, op.raw_texture);
         } else {
             self.renderer.pushShadedTriangle(self, p1, color, p2, color, p3, color);
             self.renderer.pushShadedTriangle(self, p2, color, p3, color, p4, color);

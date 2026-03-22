@@ -7,13 +7,16 @@ const Gpu = @import("gpu.zig").Gpu;
 const Point = @import("primitives.zig").Point;
 const Color = @import("primitives.zig").Color;
 const TextureCoord = @import("gpu.zig").TextureCoord;
+const TexturePage = @import("gpu.zig").TexturePage;
+const Clut = @import("gpu.zig").Clut;
 
 const TextureParams = struct {
     t1: TextureCoord,
     t2: TextureCoord,
     t3: TextureCoord,
-    tpage: @import("gpu.zig").TexturePage,
-    clut: @import("gpu.zig").Clut,
+    tpage: TexturePage,
+    clut: Clut,
+    raw_texture: bool,
 };
 
 pub const Renderer = struct {
@@ -36,11 +39,11 @@ pub const Renderer = struct {
         gpu: *Gpu,
         pts: [3]Point,
         cols: [3]Color,
-        tex_params: ?TextureParams,
+        texture_params: ?TextureParams,
     ) void {
         var points = pts;
         var colors = cols;
-        var tex = tex_params;
+        var tex = texture_params;
 
         var area: i64 = edgeFunction(points[0], points[1], points[2]);
 
@@ -103,33 +106,40 @@ pub const Renderer = struct {
                             ._8bit => {
                                 const vram_x: usize = @as(usize, t.tpage.xBase()) + (u / 2);
                                 const vram_y: usize = @as(usize, t.tpage.yBase()) + v;
+
                                 if (vram_x < 1024 and vram_y < 512) {
                                     const word = gpu.vram[vram_y * 1024 + vram_x];
-
                                     const index: u8 = if (u % 2 == 0) @truncate(word & 0xff) else @truncate(word >> 8);
 
-                                    const clut_y = @as(usize, t.clut.y_base);
-                                    const clut_x = @as(usize, t.clut.xBase());
-                                    const clut_idx = clut_y * 1024 + clut_x + index;
-                                    if (clut_idx < 1024 * 512) {
-                                        texel16 = gpu.vram[clut_idx];
+                                    if (index != 0) {
+                                        const clut_y = @as(usize, t.clut.y_base);
+                                        const clut_x = @as(usize, t.clut.xBase());
+                                        const clut_idx = clut_y * 1024 + clut_x + index;
+
+                                        if (clut_idx < 1024 * 512) {
+                                            texel16 = gpu.vram[clut_idx];
+                                        }
                                     }
                                 }
                             },
                             ._4bit => {
                                 const vram_x: usize = @as(usize, t.tpage.xBase()) + (u / 4);
                                 const vram_y: usize = @as(usize, t.tpage.yBase()) + v;
+
                                 if (vram_x < 1024 and vram_y < 512) {
                                     const word = gpu.vram[vram_y * 1024 + vram_x];
 
                                     const shift = @as(u4, @truncate(u % 4)) * 4;
                                     const index: u4 = @truncate((word >> shift) & 0xf);
 
-                                    const clut_y = @as(usize, t.clut.y_base);
-                                    const clut_x = @as(usize, t.clut.xBase());
-                                    const clut_idx = clut_y * 1024 + clut_x + index;
-                                    if (clut_idx < 1024 * 512) {
-                                        texel16 = gpu.vram[clut_idx];
+                                    if (index != 0) {
+                                        const clut_y = @as(usize, t.clut.y_base);
+                                        const clut_x = @as(usize, t.clut.xBase());
+                                        const clut_idx = clut_y * 1024 + clut_x + index;
+
+                                        if (clut_idx < 1024 * 512) {
+                                            texel16 = gpu.vram[clut_idx];
+                                        }
                                     }
                                 }
                             },
@@ -140,14 +150,21 @@ pub const Renderer = struct {
                         if (texel16 == 0) continue;
 
                         // convert to 8-bit
-                        const tr = @as(u16, texel16 & 0x1F) << 3;
-                        const tg = @as(u16, (texel16 >> 5) & 0x1F) << 3;
-                        const tb = @as(u16, (texel16 >> 10) & 0x1F) << 3;
+                        const tr = @as(u16, texel16 & 0x1f) << 3;
+                        const tg = @as(u16, (texel16 >> 5) & 0x1f) << 3;
+                        const tb = @as(u16, (texel16 >> 10) & 0x1f) << 3;
 
-                        // blend
-                        r = @as(u8, @intCast(@min(255, (@as(u16, tr) * r) / 128)));
-                        g = @as(u8, @intCast(@min(255, (@as(u16, tg) * g) / 128)));
-                        b = @as(u8, @intCast(@min(255, (@as(u16, tb) * b) / 128)));
+                        if (t.raw_texture) {
+                            // bypass blending
+                            r = @intCast(tr);
+                            g = @intCast(tg);
+                            b = @intCast(tb);
+                        } else {
+                            // blend
+                            r = @as(u8, @intCast(@min(255, (@as(u16, tr) * r) / 128)));
+                            g = @as(u8, @intCast(@min(255, (@as(u16, tg) * g) / 128)));
+                            b = @as(u8, @intCast(@min(255, (@as(u16, tb) * b) / 128)));
+                        }
                     }
 
                     gpu.putPixel(@as(i16, @intCast(x)), @as(i16, @intCast(y)), r, g, b);
@@ -181,8 +198,9 @@ pub const Renderer = struct {
         p3: Point,
         c3: Color,
         t3: TextureCoord,
-        tpage: @import("gpu.zig").TexturePage,
-        clut: @import("gpu.zig").Clut,
+        tpage: TexturePage,
+        clut: Clut,
+        raw_texture: bool,
     ) void {
         const tex_params = TextureParams{
             .t1 = t1,
@@ -190,6 +208,7 @@ pub const Renderer = struct {
             .t3 = t3,
             .tpage = tpage,
             .clut = clut,
+            .raw_texture = raw_texture,
         };
         self.rasterizeTriangle(gpu, .{ p1, p2, p3 }, .{ c1, c2, c3 }, tex_params);
     }
