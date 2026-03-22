@@ -199,13 +199,12 @@ pub const Cpu = struct {
 
     pub fn step(self: *Self) void {
         self.cycles += 1;
+
         self.bus.timers.step(1, &self.bus.intc);
         self.bus.cdrom.step(1, &self.bus.intc);
 
         // irq
-        if (self.cycles % 564480 == 0) {
-            self.bus.intc.trigger(.vblank);
-        }
+        self.bus.gpu.step(1, &self.bus.intc);
 
         const current_cause = self.cop0.getDataRegister(13);
         if (self.bus.intc.is_active()) {
@@ -214,12 +213,18 @@ pub const Cpu = struct {
             self.cop0.setDataRegister(13, current_cause & ~@as(u32, 0x0400));
         }
 
+        // update delay slot tracking before interrupt check so BD bit is correct
+        self.is_delay_slot = self.is_branch;
+        self.is_branch = false;
+
         // check IEc and IM2
         const sr = self.cop0.getDataRegister(12);
-        if (!self.is_branch and (sr & 0x01) != 0 and (sr & 0x0400) != 0) {
-            if (self.bus.intc.is_active()) {
-                self.exception(.interrupt);
-            }
+        const iec = (sr & 0x01) != 0;
+        const im2 = (sr & 0x0400) != 0;
+        const active = self.bus.intc.is_active();
+
+        if (iec and im2 and active) {
+            self.exception(.interrupt);
         }
 
         // BIOS call & tty
@@ -231,7 +236,6 @@ pub const Cpu = struct {
                 const char: u8 = @truncate(self.getReg(4));
                 std.debug.print("{c}", .{char});
             } else {
-                std.debug.print("\n", .{});
                 // const table: u8 = if (physical_pc == 0xa0) 'A' else if (physical_pc == 0xb0) 'B' else 'C';
                 // std.debug.print("[BIOS] Call: {c}0_{X:0>2}\n", .{ table, fn_id });
             }
@@ -257,9 +261,6 @@ pub const Cpu = struct {
         self.next_load = .{ .reg = 0, .value = 0 };
 
         self.current_write = .{ .reg = 0, .value = 0 };
-
-        self.is_delay_slot = self.is_branch;
-        self.is_branch = false;
 
         switch (instruction.r.opcode) {
             0b000000 => {
@@ -404,11 +405,13 @@ pub const Cpu = struct {
             // set BD bit in the cause register
             self.cop0.setDataRegister(13, self.cop0.getDataRegister(13) | 0x8000_0000);
         } else {
-            // self.cop0.setDataRegister(14, self.current_pc);
-
             // clear BD bit in the cause register
             self.cop0.setDataRegister(13, self.cop0.getDataRegister(13) & ~@as(u32, 0x8000_0000));
         }
+
+        // cancel pending load
+        self.load = .{ .reg = 0, .value = 0 };
+        self.next_load = .{ .reg = 0, .value = 0 };
 
         self.pc = handler;
         self.next_pc = self.pc +% 4;

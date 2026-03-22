@@ -105,7 +105,7 @@ pub const Timers = struct {
                     0x4 => {
                         timer.mode = @bitCast(value);
 
-                        timer.mode.interrupt_request = 0;
+                        timer.mode.interrupt_request = 1;
                         timer.current.value = 0;
                     },
                     0x8 => timer.target = @bitCast(value),

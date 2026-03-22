@@ -3,6 +3,7 @@ const std = @import("std");
 const Renderer = @import("renderer.zig").Renderer;
 const Point = @import("primitives.zig").Point;
 const Color = @import("primitives.zig").Color;
+const InterruptController = @import("interrupt.zig").InterruptController;
 
 pub const Color16 = packed struct(u16) {
     r: u5,
@@ -371,6 +372,9 @@ pub const Gpu = struct {
     transfer_width: u16,
     transfer_height: u16,
 
+    scanline: u16,
+    scanline_cycles: u16,
+
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) !Self {
@@ -424,11 +428,32 @@ pub const Gpu = struct {
             .transfer_current_y = 0,
             .transfer_width = 0,
             .transfer_height = 0,
+
+            .scanline = 0,
+            .scanline_cycles = 0,
         };
     }
 
     pub fn deinit(self: *Self) void {
         self.renderer.deinit();
+    }
+
+    pub fn step(self: *Self, cycles: u16, intc: *InterruptController) void {
+        self.scanline_cycles += cycles;
+
+        if (self.scanline_cycles >= 2145) {
+            self.scanline_cycles -= 2145;
+            self.scanline += 1;
+
+            if (self.scanline == 240) {
+                intc.trigger(.vblank);
+            }
+
+            if (self.scanline >= 263) {
+                self.scanline = 0;
+                self.gpustat.drawing_odd_lines ^= 1;
+            }
+        }
     }
 
     pub fn read32(self: *Self, offset: u32) u32 {

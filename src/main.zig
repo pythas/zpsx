@@ -37,17 +37,17 @@ const AppState = struct {
     fn init(allocator: std.mem.Allocator, breakpoints: []const u32) !*Self {
         const self = try allocator.create(AppState);
 
-        var file = try std.fs.cwd().openFile("roms/tests/psxtest_cpu.exe", .{});
-        defer file.close();
+        // var file = try std.fs.cwd().openFile("roms/tests/psxtest_cpu.exe", .{});
+        // defer file.close();
+        //
+        // const max_size = 8 * 1024 * 1024; // 8MB
+        // const exe_data = try file.readToEndAlloc(allocator, max_size);
+        // defer allocator.free(exe_data);
+        //
+        // var emulator = try Emulator.init(allocator, breakpoints);
+        // try emulator.sideload_exe(exe_data);
 
-        const max_size = 8 * 1024 * 1024; // 8MB
-        const exe_data = try file.readToEndAlloc(allocator, max_size);
-        defer allocator.free(exe_data);
-
-        var emulator = try Emulator.init(allocator, breakpoints);
-        try emulator.sideload_exe(exe_data);
-
-        // const emulator = try Emulator.init(allocator, breakpoints);
+        const emulator = try Emulator.init(allocator, breakpoints);
 
         self.* = .{
             .allocator = allocator,
