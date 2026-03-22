@@ -29,4 +29,12 @@ pub const Color = struct {
             .b = @truncate(word >> 16),
         };
     }
+
+    pub fn toVramColor(self: Color, semi_transparency_bit: u1) u16 {
+        const r = @as(u16, self.r >> 3);
+        const g = @as(u16, self.g >> 3);
+        const b = @as(u16, self.b >> 3);
+
+        return (@as(u16, semi_transparency_bit) << 15) | (b << 10) | (g << 5) | r;
+    }
 };

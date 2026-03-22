@@ -489,13 +489,12 @@ pub const Gpu = struct {
 
         const index = @as(usize, @intCast(y)) * 1024 + @as(usize, @intCast(x));
 
-        const r5 = @as(u16, r >> 3);
-        const g5 = @as(u16, g >> 3);
-        const b5 = @as(u16, b >> 3);
-
-        const color: u16 = (1 << 15) | (b5 << 10) | (g5 << 5) | r5;
-
-        self.vram[index] = color;
+        const color = Color{
+            .r = r,
+            .g = g,
+            .b = b,
+        };
+        self.vram[index] = color.toVramColor(1);
     }
 
     fn writeWordToVram(self: *Self, word: u32) void {
@@ -601,15 +600,29 @@ pub const Gpu = struct {
 
     fn gp0FillRectangle(self: *Self, c: u32, xy: u32, wh: u32) void {
         const color = Color.fromWord(c);
-        const top_left = Point.fromWord(xy);
-        const size = Point.fromWord(wh);
+        const fill_color = color.toVramColor(0);
 
-        _ = color;
-        _ = top_left;
-        _ = size;
-        _ = self;
+        // mask to multiples of 16 (0x3f0)
+        // y maxes out at 511 (0x1ff)
+        const x = xy & 0x3f0;
+        const y = (xy >> 16) & 0x1ff;
 
-        // TODO: THIS.
+        // width maxes out at 1023 (0x3ff)
+        // height maxes out at 511 (0x1ff)
+        const width = wh & 0x3ff;
+        const height = (wh >> 16) & 0x1ff;
+
+        var cy: u32 = 0;
+        while (cy < height) : (cy += 1) {
+            var cx: u32 = 0;
+            while (cx < width) : (cx += 1) {
+                const py = (y + cy) % 512;
+                const px = (x + cx) % 1024;
+
+                const index = (py * 1024) + px;
+                self.vram[index] = fill_color;
+            }
+        }
     }
 
     fn gp0Polygon(self: *Self) void {
@@ -704,8 +717,8 @@ pub const Gpu = struct {
 
         switch (op.size) {
             0 => {
-                width = @as(i16, @bitCast(@as(u16, @truncate(size))));
-                height = @as(i16, @bitCast(@as(u16, @truncate(size >> 16))));
+                width = @bitCast(@as(u16, @truncate(size)));
+                height = @bitCast(@as(u16, @truncate(size >> 16)));
             },
             1 => {
                 width = 1;
@@ -744,8 +757,8 @@ pub const Gpu = struct {
             const u = @as(u8, @truncate(uv));
             const v = @as(u8, @truncate(uv >> 8));
 
-            const tex_width = @as(u8, @truncate(@as(u16, @bitCast(width))));
-            const tex_height = @as(u8, @truncate(@as(u16, @bitCast(height))));
+            const tex_width: u8 = @intCast(@as(u16, @bitCast(width)) & 0xff);
+            const tex_height: u8 = @intCast(@as(u16, @bitCast(height)) & 0xff);
 
             const t1 = TextureCoord{ .u = u, .v = v };
             const t2 = TextureCoord{ .u = u +% tex_width, .v = v };
@@ -758,129 +771,6 @@ pub const Gpu = struct {
             self.renderer.pushShadedTriangle(self, p1, color, p2, color, p3, color);
             self.renderer.pushShadedTriangle(self, p2, color, p3, color, p4, color);
         }
-    }
-
-    fn gp0FlatTriangle(
-        self: *Self,
-        v1: u32,
-        v2: u32,
-        v3: u32,
-    ) void {
-        const color = Color.fromWord(self.gp0_buffer[0]);
-
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-
-        self.renderer.pushShadedTriangle(self, p1, color, p2, color, p3, color);
-    }
-
-    fn gp0TexturedTriangle(
-        self: *Self,
-        c1: u32,
-        v1: u32,
-        uv1: u32,
-        v2: u32,
-        uv2: u32,
-        v3: u32,
-        uv3: u32,
-    ) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-
-        const color = Color.fromWord(c1);
-
-        const t1 = TextureCoord.fromWord(uv1);
-        const clut = Clut.fromWord(uv1);
-
-        const t2 = TextureCoord.fromWord(uv2);
-        const tpage = TexturePage.fromWord(uv2);
-
-        const t3 = TextureCoord.fromWord(uv3);
-
-        self.renderer.pushTexturedTriangle(self, p1, color, t1, p2, color, t2, p3, color, t3, tpage, clut);
-    }
-
-    fn gp0ShadedTexturedTriangle(
-        self: *Self,
-        c1: u32,
-        v1: u32,
-        uv1: u32,
-        c2: u32,
-        v2: u32,
-        uv2: u32,
-        c3: u32,
-        v3: u32,
-        uv3: u32,
-    ) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-
-        const color1 = Color.fromWord(c1);
-        const color2 = Color.fromWord(c2);
-        const color3 = Color.fromWord(c3);
-
-        const t1 = TextureCoord.fromWord(uv1);
-        const clut = Clut.fromWord(uv1);
-
-        const t2 = TextureCoord.fromWord(uv2);
-        const tpage = TexturePage.fromWord(uv2);
-
-        const t3 = TextureCoord.fromWord(uv3);
-
-        self.renderer.pushTexturedTriangle(self, p1, color1, t1, p2, color2, t2, p3, color3, t3, tpage, clut);
-    }
-
-    fn gp0ShadedTexturedQuad(
-        self: *Self,
-        c1: u32,
-        v1: u32,
-        uv1: u32,
-        c2: u32,
-        v2: u32,
-        uv2: u32,
-        c3: u32,
-        v3: u32,
-        uv3: u32,
-        c4: u32,
-        v4: u32,
-        uv4: u32,
-    ) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-        const p4 = Point.fromWord(v4).offset(dx, dy);
-
-        const color1 = Color.fromWord(c1);
-        const color2 = Color.fromWord(c2);
-        const color3 = Color.fromWord(c3);
-        const color4 = Color.fromWord(c4);
-
-        const t1 = TextureCoord.fromWord(uv1);
-        const clut = Clut.fromWord(uv1);
-
-        const t2 = TextureCoord.fromWord(uv2);
-        const tpage = TexturePage.fromWord(uv2);
-
-        const t3 = TextureCoord.fromWord(uv3);
-        const t4 = TextureCoord.fromWord(uv4);
-
-        self.renderer.pushTexturedTriangle(self, p1, color1, t1, p2, color2, t2, p3, color3, t3, tpage, clut);
-        self.renderer.pushTexturedTriangle(self, p2, color2, t2, p3, color3, t3, p4, color4, t4, tpage, clut);
     }
 
     fn gp0LoadImage(self: *Self, word1: u32, word2: u32) void {
