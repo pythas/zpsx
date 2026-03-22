@@ -21,6 +21,16 @@ pub const Fifo = struct {
         };
     }
 
+    pub fn fromSlice(data: []const u8) Self {
+        var self = Self.init();
+
+        for (data) |b| {
+            self.push(b);
+        }
+
+        return self;
+    }
+
     pub fn push(self: *Self, value: u8) void {
         if (self.length >= 16) {
             std.debug.print("cdrom: FIFO overflow\n", .{});
@@ -56,6 +66,15 @@ pub const Fifo = struct {
     }
 };
 
+const Interrupt = enum(u5) {
+    none = 0,
+    data_ready = 1,
+    complete = 2,
+    acknowledge = 3,
+    data_end = 4,
+    error_status = 5,
+};
+
 pub const StatusRegister = packed struct(u8) {
     index: u2,
     adpcm_playing: u1,
@@ -66,10 +85,38 @@ pub const StatusRegister = packed struct(u8) {
     command_busy: u1,
 };
 
+const DriveStatus = packed struct(u8) {
+    error_status: u1 = 0,
+    motor_on: u1 = 0,
+    seek_error: u1 = 0,
+    id_error: u1 = 0,
+    shell_open: u1 = 0,
+    reading: u1 = 0,
+    seeking: u1 = 0,
+    playing: u1 = 0,
+};
+
+const PendingResponse = struct {
+    interrupt: u5,
+    payload: Fifo,
+    delay: u32,
+
+    const Self = @This();
+
+    pub fn init() Self {
+        return .{
+            .interrupt = 0,
+            .payload = Fifo.init(),
+            .delay = 0,
+        };
+    }
+};
+
 pub const Cdrom = struct {
     allocator: std.mem.Allocator,
 
     status: StatusRegister,
+    drive_status: DriveStatus,
 
     parameter: Fifo,
     response: Fifo,
@@ -80,24 +127,26 @@ pub const Cdrom = struct {
     pending_command: ?u8,
     command_delay: u32,
 
+    pending_response: ?PendingResponse,
+
     const Self = @This();
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
             .allocator = allocator,
-            .status = @bitCast(@as(u8, 0x18)),
+            .status = @bitCast(@as(u8, 0b0001_1000)), // parameter_fifo_empty, parameter_fifo_writable
+            .drive_status = @bitCast(@as(u8, 0b0000_0010)), // motor_on
             .parameter = Fifo.init(),
             .response = Fifo.init(),
             .interrupt_status = 0,
             .interrupt_mask = 0,
             .pending_command = null,
             .command_delay = 0,
+            .pending_response = null,
         };
     }
 
     pub fn read8(self: *Self, offset: u32) u8 {
-        std.debug.print("cdrom: read8 from offset {x} (Bank: {d})\n", .{ offset, self.status.index });
-
         return switch (offset) {
             0x00 => {
                 // NOTE: not sure if we should persist this
@@ -121,8 +170,6 @@ pub const Cdrom = struct {
     }
 
     pub fn write8(self: *Self, offset: u32, value: u8) void {
-        std.debug.print("cdrom: write8 to offset {x} with value {x} (Bank: {d})\n", .{ offset, value, self.status.index });
-
         switch (offset) {
             0x00 => {
                 self.status.index = @truncate(value); // only writeable bit
@@ -142,7 +189,20 @@ pub const Cdrom = struct {
             },
             0x03 => {
                 switch (self.status.index) {
-                    1 => self.interrupt_status &= ~@as(u5, @truncate(value)),
+                    1 => {
+                        self.interrupt_status &= ~@as(u5, @truncate(value));
+
+                        // when interrupt is acknowledged, check for pending second response
+                        // TODO: should support multiple pending responses
+                        if (self.interrupt_status == 0) {
+                            if (self.pending_response) |*pending| {
+                                if (pending.delay == 0) {
+                                    // deliver immediately
+                                    self.deliverPendingResponse();
+                                }
+                            }
+                        }
+                    },
                     else => std.debug.print("cdrom: Unhandled write8 to offset {x} with value {x} (Bank: {d})\n", .{ offset, value, self.status.index }),
                 }
             },
@@ -152,20 +212,57 @@ pub const Cdrom = struct {
         }
     }
 
-    pub fn step(self: *Self, cycles: u32, intc: *InterruptController) void {
-        if (self.command_delay == 0) return;
+    fn deliverPendingResponse(self: *Self) void {
+        if (self.pending_response) |pending| {
+            self.response = pending.payload;
+            self.interrupt_status = pending.interrupt;
+            self.pending_response = null;
+        }
+    }
 
-        if (cycles < self.command_delay) {
-            self.command_delay -= cycles;
-            return;
+    pub fn step(self: *Self, cycles: u32, intc: *InterruptController) void {
+        // process pending command
+        if (self.command_delay > 0) {
+            if (cycles < self.command_delay) {
+                self.command_delay -= cycles;
+            } else {
+                self.command_delay = 0;
+
+                if (self.pending_command) |cmd| {
+                    self.pending_command = null;
+                    self.processCommand(cmd, intc);
+                }
+            }
         }
 
-        self.command_delay = 0;
+        // process pending second response
+        if (self.pending_response) |*pending| {
+            if (pending.delay > 0) {
+                if (cycles < pending.delay) {
+                    pending.delay -= cycles;
+                } else {
+                    pending.delay = 0;
 
-        const cmd = self.pending_command orelse return;
+                    // only deliver if no interrupt is pending
+                    if (self.interrupt_status == 0) {
+                        self.deliverPendingResponse();
+                        intc.trigger(.cdrom);
+                    }
+                }
+            }
+        }
+    }
 
-        self.pending_command = null;
-        self.processCommand(cmd, intc);
+    fn acknowledge(
+        self: *Self,
+        intc: *InterruptController,
+        drive_status: DriveStatus,
+        interrupt: Interrupt,
+    ) void {
+        self.response.clear();
+        self.response.push(@bitCast(drive_status));
+        self.interrupt_status = @intFromEnum(interrupt);
+        intc.trigger(.cdrom);
     }
 
     fn executeCommand(self: *Self, command: u8) void {
@@ -175,17 +272,42 @@ pub const Cdrom = struct {
 
     fn processCommand(self: *Self, command: u8, intc: *InterruptController) void {
         switch (command) {
+            0x01 => { // GetStat
+                self.acknowledge(intc, self.drive_status, .acknowledge);
+            },
+            0x1a => { // GetId
+                self.acknowledge(intc, self.drive_status, .acknowledge);
+
+                // no disc
+                const status = DriveStatus{ .id_error = 1 };
+
+                self.pending_response = .{
+                    .interrupt = @intFromEnum(Interrupt.error_status),
+                    .payload = Fifo.fromSlice(&.{
+                        @bitCast(status),
+                        0x40,
+                        0x00,
+                        0x00,
+                        0x00,
+                        0x00,
+                        0x00,
+                        0x00,
+                    }),
+                    .delay = 20_000,
+                };
+            },
             0x19 => {
                 const sub_command = self.parameter.pop();
 
                 switch (sub_command) {
-                    0x20 => {
-                        self.response.push(0x94);
-                        self.response.push(0x09);
-                        self.response.push(0x19);
-                        self.response.push(0xc0);
-
-                        self.interrupt_status = 3;
+                    0x20 => { // CD-ROM version
+                        self.response = Fifo.fromSlice(&.{
+                            0x94,
+                            0x09,
+                            0x19,
+                            0xc0,
+                        });
+                        self.interrupt_status = @intFromEnum(Interrupt.acknowledge);
 
                         intc.trigger(.cdrom);
                     },

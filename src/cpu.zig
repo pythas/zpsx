@@ -223,11 +223,11 @@ pub const Cpu = struct {
         const im2 = (sr & 0x0400) != 0;
         const active = self.bus.intc.is_active();
 
-        if (iec and im2 and active) {
+        if (!self.is_delay_slot and iec and im2 and active) {
             self.exception(.interrupt);
         }
 
-        // BIOS call & tty
+        // BIOS TTY output
         const physical_pc = self.pc & 0x1fff_ffff;
         if (physical_pc == 0xa0 or physical_pc == 0xb0 or physical_pc == 0xc0) {
             const fn_id = self.getReg(9);
@@ -235,9 +235,6 @@ pub const Cpu = struct {
             if ((physical_pc == 0xa0 and fn_id == 0x3c) or (physical_pc == 0xb0 and fn_id == 0x3d)) {
                 const char: u8 = @truncate(self.getReg(4));
                 std.debug.print("{c}", .{char});
-            } else {
-                // const table: u8 = if (physical_pc == 0xa0) 'A' else if (physical_pc == 0xb0) 'B' else 'C';
-                // std.debug.print("[BIOS] Call: {c}0_{X:0>2}\n", .{ table, fn_id });
             }
         }
 

@@ -93,33 +93,45 @@ pub const Renderer = struct {
 
                         switch (t.tpage.color_depth) {
                             ._15bit => {
-                                const vram_x = t.tpage.xBase() + u;
-                                const vram_y = t.tpage.yBase() + v;
+                                const vram_x: usize = @as(usize, t.tpage.xBase()) + u;
+                                const vram_y: usize = @as(usize, t.tpage.yBase()) + v;
 
-                                texel16 = gpu.vram[vram_y * 1024 + vram_x];
+                                if (vram_x < 1024 and vram_y < 512) {
+                                    texel16 = gpu.vram[vram_y * 1024 + vram_x];
+                                }
                             },
                             ._8bit => {
-                                const vram_x = t.tpage.xBase() + (u / 2);
-                                const vram_y = t.tpage.yBase() + v;
-                                const word = gpu.vram[vram_y * 1024 + vram_x];
+                                const vram_x: usize = @as(usize, t.tpage.xBase()) + (u / 2);
+                                const vram_y: usize = @as(usize, t.tpage.yBase()) + v;
+                                if (vram_x < 1024 and vram_y < 512) {
+                                    const word = gpu.vram[vram_y * 1024 + vram_x];
 
-                                const index: u8 = if (u % 2 == 0) @truncate(word & 0xff) else @truncate(word >> 8);
+                                    const index: u8 = if (u % 2 == 0) @truncate(word & 0xff) else @truncate(word >> 8);
 
-                                const clut_y = @as(usize, t.clut.y_base);
-                                const clut_x = @as(usize, t.clut.xBase());
-                                texel16 = gpu.vram[clut_y * 1024 + clut_x + index];
+                                    const clut_y = @as(usize, t.clut.y_base);
+                                    const clut_x = @as(usize, t.clut.xBase());
+                                    const clut_idx = clut_y * 1024 + clut_x + index;
+                                    if (clut_idx < 1024 * 512) {
+                                        texel16 = gpu.vram[clut_idx];
+                                    }
+                                }
                             },
                             ._4bit => {
-                                const vram_x = t.tpage.xBase() + (u / 4);
-                                const vram_y = t.tpage.yBase() + v;
-                                const word = gpu.vram[vram_y * 1024 + vram_x];
+                                const vram_x: usize = @as(usize, t.tpage.xBase()) + (u / 4);
+                                const vram_y: usize = @as(usize, t.tpage.yBase()) + v;
+                                if (vram_x < 1024 and vram_y < 512) {
+                                    const word = gpu.vram[vram_y * 1024 + vram_x];
 
-                                const shift = @as(u4, @truncate(u % 4)) * 4;
-                                const index: u4 = @truncate((word >> shift) & 0xf);
+                                    const shift = @as(u4, @truncate(u % 4)) * 4;
+                                    const index: u4 = @truncate((word >> shift) & 0xf);
 
-                                const clut_y = @as(usize, t.clut.y_base);
-                                const clut_x = @as(usize, t.clut.xBase());
-                                texel16 = gpu.vram[clut_y * 1024 + clut_x + index];
+                                    const clut_y = @as(usize, t.clut.y_base);
+                                    const clut_x = @as(usize, t.clut.xBase());
+                                    const clut_idx = clut_y * 1024 + clut_x + index;
+                                    if (clut_idx < 1024 * 512) {
+                                        texel16 = gpu.vram[clut_idx];
+                                    }
+                                }
                             },
                             .reserved => {},
                         }
@@ -209,14 +221,15 @@ const Bbx = struct {
 };
 
 inline fn edgeFunction(a: Point, b: Point, c: Point) i32 {
-    const ax: i32 = a.x;
-    const ay: i32 = a.y;
-    const bx: i32 = b.x;
-    const by: i32 = b.y;
-    const cx: i32 = c.x;
-    const cy: i32 = c.y;
+    const ax: i64 = a.x;
+    const ay: i64 = a.y;
+    const bx: i64 = b.x;
+    const by: i64 = b.y;
+    const cx: i64 = c.x;
+    const cy: i64 = c.y;
 
-    return (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
+    const result = (cx - ax) * (by - ay) - (cy - ay) * (bx - ax);
+    return @as(i32, @intCast(std.math.clamp(result, std.math.minInt(i32), std.math.maxInt(i32))));
 }
 
 inline fn interpolate(w0: i64, w1: i64, w2: i64, val0: u8, val1: u8, val2: u8) u8 {
