@@ -580,80 +580,7 @@ pub const Gpu = struct {
                 self.gp0_buffer[1],
                 self.gp0_buffer[2],
             ),
-            0x20, 0x21, 0x22, 0x23 => self.gp0FlatTriangle(
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-            ),
-            0x24, 0x25, 0x26, 0x27 => self.gp0TexturedTriangle(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-                self.gp0_buffer[5],
-                self.gp0_buffer[6],
-            ),
-            0x28, 0x29, 0x2a, 0x2b => self.gp0FlatQuad(
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-            ),
-            0x2c, 0x2d, 0x2e, 0x2f => self.gp0TexturedQuad(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-                self.gp0_buffer[5],
-                self.gp0_buffer[6],
-                self.gp0_buffer[7],
-                self.gp0_buffer[8],
-            ),
-            0x30, 0x31, 0x32, 0x33 => self.gp0ShadedTriangle(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-                self.gp0_buffer[5],
-            ),
-            0x34, 0x35, 0x36, 0x37 => self.gp0ShadedTexturedTriangle(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-                self.gp0_buffer[5],
-                self.gp0_buffer[6],
-                self.gp0_buffer[7],
-                self.gp0_buffer[8],
-            ),
-            0x38, 0x39, 0x3a, 0x3b => self.gp0ShadedQuad(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-                self.gp0_buffer[5],
-                self.gp0_buffer[6],
-                self.gp0_buffer[7],
-            ),
-            0x3c, 0x3d, 0x3e, 0x3f => self.gp0ShadedTexturedQuad(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-                self.gp0_buffer[2],
-                self.gp0_buffer[3],
-                self.gp0_buffer[4],
-                self.gp0_buffer[5],
-                self.gp0_buffer[6],
-                self.gp0_buffer[7],
-                self.gp0_buffer[8],
-                self.gp0_buffer[9],
-                self.gp0_buffer[10],
-                self.gp0_buffer[11],
-            ),
+            0x20...0x3f => self.gp0Polygon(),
             0x60...0x7f => self.gp0Rectangle(),
             0xa0 => self.gp0LoadImage(self.gp0_buffer[1], self.gp0_buffer[2]),
             0xc0 => self.gp0StoreImage(self.gp0_buffer[1], self.gp0_buffer[2]),
@@ -685,14 +612,50 @@ pub const Gpu = struct {
         // TODO: THIS.
     }
 
-    fn gp0FlatQuad(
-        self: *Self,
-        v1: u32,
-        v2: u32,
-        v3: u32,
-        v4: u32,
-    ) void {
-        const color = Color.fromWord(self.gp0_buffer[0]);
+    fn gp0Polygon(self: *Self) void {
+        const header = self.gp0_buffer[0];
+        const opcode: u8 = @truncate(header >> 24);
+        const op: PolygonOpcode = @bitCast(opcode);
+
+        var idx: usize = 0;
+
+        // v1
+        const c1 = Color.fromWord(self.gp0_buffer[idx]);
+        idx += 1;
+        const v1 = self.gp0_buffer[idx];
+        idx += 1;
+        const uv1 = if (op.is_textured) self.gp0_buffer[idx] else 0;
+        if (op.is_textured) idx += 1;
+
+        // v2
+        const c2 = if (op.is_gouraud) Color.fromWord(self.gp0_buffer[idx]) else c1;
+        if (op.is_gouraud) idx += 1;
+        const v2 = self.gp0_buffer[idx];
+        idx += 1;
+        const uv2 = if (op.is_textured) self.gp0_buffer[idx] else 0;
+        if (op.is_textured) idx += 1;
+
+        // v3
+        const c3 = if (op.is_gouraud) Color.fromWord(self.gp0_buffer[idx]) else c1;
+        if (op.is_gouraud) idx += 1;
+        const v3 = self.gp0_buffer[idx];
+        idx += 1;
+        const uv3 = if (op.is_textured) self.gp0_buffer[idx] else 0;
+        if (op.is_textured) idx += 1;
+
+        // v4 (quad)
+        var c4 = c1;
+        var v4: u32 = 0;
+        var uv4: u32 = 0;
+
+        if (op.is_quad) {
+            c4 = if (op.is_gouraud) Color.fromWord(self.gp0_buffer[idx]) else c1;
+            if (op.is_gouraud) idx += 1;
+            v4 = self.gp0_buffer[idx];
+            idx += 1;
+            uv4 = if (op.is_textured) self.gp0_buffer[idx] else 0;
+            if (op.is_textured) idx += 1;
+        }
 
         const dx = self.drawing_x_offset;
         const dy = self.drawing_y_offset;
@@ -700,112 +663,29 @@ pub const Gpu = struct {
         const p1 = Point.fromWord(v1).offset(dx, dy);
         const p2 = Point.fromWord(v2).offset(dx, dy);
         const p3 = Point.fromWord(v3).offset(dx, dy);
-        const p4 = Point.fromWord(v4).offset(dx, dy);
+        const p4 = if (op.is_quad) Point.fromWord(v4).offset(dx, dy) else Point{ .x = 0, .y = 0 };
 
-        self.renderer.pushShadedTriangle(self, p1, color, p2, color, p3, color);
-        self.renderer.pushShadedTriangle(self, p2, color, p3, color, p4, color);
-    }
+        if (op.is_textured) {
+            const clut = Clut.fromWord(uv1);
+            const tpage = TexturePage.fromWord(uv2);
 
-    fn gp0TexturedQuad(
-        self: *Self,
-        c1: u32,
-        v1: u32,
-        uv1: u32,
-        v2: u32,
-        uv2: u32,
-        v3: u32,
-        uv3: u32,
-        v4: u32,
-        uv4: u32,
-    ) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
+            const t1 = TextureCoord.fromWord(uv1);
+            const t2 = TextureCoord.fromWord(uv2);
+            const t3 = TextureCoord.fromWord(uv3);
 
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-        const p4 = Point.fromWord(v4).offset(dx, dy);
+            self.renderer.pushTexturedTriangle(self, p1, c1, t1, p2, c2, t2, p3, c3, t3, tpage, clut);
 
-        const color = Color.fromWord(c1);
+            if (op.is_quad) {
+                const t4 = TextureCoord.fromWord(uv4);
+                self.renderer.pushTexturedTriangle(self, p2, c2, t2, p3, c3, t3, p4, c4, t4, tpage, clut);
+            }
+        } else {
+            self.renderer.pushShadedTriangle(self, p1, c1, p2, c2, p3, c3);
 
-        const t1 = TextureCoord.fromWord(uv1);
-        const clut = Clut.fromWord(uv1);
-
-        const t2 = TextureCoord.fromWord(uv2);
-        const tpage = TexturePage.fromWord(uv2);
-
-        const t3 = TextureCoord.fromWord(uv3);
-        const t4 = TextureCoord.fromWord(uv4);
-
-        self.renderer.pushTexturedTriangle(self, p1, color, t1, p2, color, t2, p3, color, t3, tpage, clut);
-        self.renderer.pushTexturedTriangle(self, p2, color, t2, p3, color, t3, p4, color, t4, tpage, clut);
-    }
-
-    fn gp0ShadedQuad(
-        self: *Self,
-        c1: u32,
-        v1: u32,
-        c2: u32,
-        v2: u32,
-        c3: u32,
-        v3: u32,
-        c4: u32,
-        v4: u32,
-    ) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-        const p4 = Point.fromWord(v4).offset(dx, dy);
-
-        const color1 = Color.fromWord(c1);
-        const color2 = Color.fromWord(c2);
-        const color3 = Color.fromWord(c3);
-        const color4 = Color.fromWord(c4);
-
-        self.renderer.pushShadedTriangle(self, p1, color1, p2, color2, p3, color3);
-        self.renderer.pushShadedTriangle(self, p2, color2, p3, color3, p4, color4);
-    }
-
-    fn gp0ShadedTriangle(
-        self: *Self,
-        c1: u32,
-        v1: u32,
-        c2: u32,
-        v2: u32,
-        c3: u32,
-        v3: u32,
-    ) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const p1 = Point.fromWord(v1).offset(dx, dy);
-        const p2 = Point.fromWord(v2).offset(dx, dy);
-        const p3 = Point.fromWord(v3).offset(dx, dy);
-
-        const color1 = Color.fromWord(c1);
-        const color2 = Color.fromWord(c2);
-        const color3 = Color.fromWord(c3);
-
-        self.renderer.pushShadedTriangle(self, p1, color1, p2, color2, p3, color3);
-    }
-
-    fn gp0Dot(self: *Self, c: u32, xy: u32) void {
-        const dx = self.drawing_x_offset;
-        const dy = self.drawing_y_offset;
-
-        const color = Color.fromWord(c);
-        const point = Point.fromWord(xy).offset(dx, dy);
-
-        self.putPixel(
-            @as(i16, @intCast(point.x)),
-            @as(i16, @intCast(point.y)),
-            color.r,
-            color.g,
-            color.b,
-        );
+            if (op.is_quad) {
+                self.renderer.pushShadedTriangle(self, p2, c2, p3, c3, p4, c4);
+            }
+        }
     }
 
     fn gp0Rectangle(self: *Self) void {
