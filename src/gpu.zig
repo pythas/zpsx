@@ -654,10 +654,7 @@ pub const Gpu = struct {
                 self.gp0_buffer[10],
                 self.gp0_buffer[11],
             ),
-            0x68 => self.gp0Dot(
-                self.gp0_buffer[0],
-                self.gp0_buffer[1],
-            ),
+            0x60...0x7f => self.gp0Rectangle(),
             0xa0 => self.gp0LoadImage(self.gp0_buffer[1], self.gp0_buffer[2]),
             0xc0 => self.gp0StoreImage(self.gp0_buffer[1], self.gp0_buffer[2]),
             0xe1 => self.gp0DrawMode(header),
@@ -809,6 +806,78 @@ pub const Gpu = struct {
             color.g,
             color.b,
         );
+    }
+
+    fn gp0Rectangle(self: *Self) void {
+        const header = self.gp0_buffer[0];
+        const opcode: u8 = @truncate(header >> 24);
+        const op: RectangleOpcode = @bitCast(opcode);
+
+        const color = Color.fromWord(header);
+        const vertex = self.gp0_buffer[1];
+
+        const uv = if (op.is_textured) self.gp0_buffer[2] else 0;
+        const size = if (op.is_textured) self.gp0_buffer[3] else self.gp0_buffer[2];
+
+        var width: i16 = 0;
+        var height: i16 = 0;
+
+        switch (op.size) {
+            0 => {
+                width = @as(i16, @bitCast(@as(u16, @truncate(size))));
+                height = @as(i16, @bitCast(@as(u16, @truncate(size >> 16))));
+            },
+            1 => {
+                width = 1;
+                height = 1;
+            },
+            2 => {
+                width = 8;
+                height = 8;
+            },
+            3 => {
+                width = 16;
+                height = 16;
+            },
+        }
+
+        const dx = self.drawing_x_offset;
+        const dy = self.drawing_y_offset;
+
+        const p1 = Point.fromWord(vertex).offset(dx, dy);
+        const p2 = Point{ .x = p1.x + width, .y = p1.y };
+        const p3 = Point{ .x = p1.x, .y = p1.y + height };
+        const p4 = Point{ .x = p1.x + width, .y = p1.y + height };
+
+        if (op.is_textured) {
+            const clut = Clut.fromWord(uv);
+
+            // construct the texpage from gpustat
+            const tpage = TexturePage{
+                .x_base_raw = self.gpustat.texture_page_x_base,
+                .y_base_1 = self.gpustat.texture_page_y_base_1,
+                .semi_transparency = self.gpustat.semi_transparency,
+                .color_depth = self.gpustat.texture_page_colors,
+                .y_base_2 = self.gpustat.texture_page_y_base_2,
+            };
+
+            const u = @as(u8, @truncate(uv));
+            const v = @as(u8, @truncate(uv >> 8));
+
+            const tex_width = @as(u8, @truncate(@as(u16, @bitCast(width))));
+            const tex_height = @as(u8, @truncate(@as(u16, @bitCast(height))));
+
+            const t1 = TextureCoord{ .u = u, .v = v };
+            const t2 = TextureCoord{ .u = u +% tex_width, .v = v };
+            const t3 = TextureCoord{ .u = u, .v = v +% tex_height };
+            const t4 = TextureCoord{ .u = u +% tex_width, .v = v +% tex_height };
+
+            self.renderer.pushTexturedTriangle(self, p1, color, t1, p2, color, t2, p3, color, t3, tpage, clut);
+            self.renderer.pushTexturedTriangle(self, p2, color, t2, p3, color, t3, p4, color, t4, tpage, clut);
+        } else {
+            self.renderer.pushShadedTriangle(self, p1, color, p2, color, p3, color);
+            self.renderer.pushShadedTriangle(self, p2, color, p3, color, p4, color);
+        }
     }
 
     fn gp0FlatTriangle(
