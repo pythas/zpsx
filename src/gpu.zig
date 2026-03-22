@@ -476,23 +476,7 @@ pub const Gpu = struct {
     pub fn write32(self: *Self, address: u32, value: u32) void {
         switch (address) {
             0x00 => self.gp0Write(value),
-            0x04 => {
-                const opcode: u8 = @truncate(value >> 24);
-
-                switch (opcode) {
-                    0x00 => self.gp1Reset(),
-                    0x01 => self.gp1ResetCommandBuffer(),
-                    0x02 => self.gp1AcknowledgeIrq(),
-                    0x03 => self.gp1DisplayEnable(value),
-                    0x04 => self.gp1DmaDirection(value),
-                    0x05 => self.gp1DisplayVramStart(value),
-                    0x06 => self.gp1DisplayHorizontalRange(value),
-                    0x07 => self.gp1DisplayVerticalRange(value),
-                    0x08 => self.gp1DisplayMode(value),
-                    0x10 => self.gp1Read(value),
-                    else => std.debug.panic("gpu: Unhandled GP1 opcode: {x}\n", .{opcode}),
-                }
-            },
+            0x04 => self.gp1Write(value),
             else => std.debug.panic("gpu: Unhandled write32 to offset: {x}\n", .{address}),
         }
     }
@@ -1039,6 +1023,24 @@ pub const Gpu = struct {
     }
 
     // GP1
+    fn gp1Write(self: *Self, value: u32) void {
+        const opcode: u8 = @truncate(value >> 24);
+
+        switch (opcode) {
+            0x00 => self.gp1Reset(),
+            0x01 => self.gp1ResetCommandBuffer(),
+            0x02 => self.gp1AcknowledgeIrq(),
+            0x03 => self.gp1DisplayEnable(value),
+            0x04 => self.gp1DmaDirection(value),
+            0x05 => self.gp1DisplayVramStart(value),
+            0x06 => self.gp1DisplayHorizontalRange(value),
+            0x07 => self.gp1DisplayVerticalRange(value),
+            0x08 => self.gp1DisplayMode(value),
+            0x10 => self.gp1Read(value),
+            else => std.debug.panic("gpu: Unhandled GP1 opcode: {x}\n", .{opcode}),
+        }
+    }
+
     fn gp1Reset(self: *Self) void {
         self.* = Self.init(self.allocator) catch @panic("Failed to reset GPU");
 
