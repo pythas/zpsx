@@ -194,7 +194,7 @@ pub const Cpu = struct {
     fn isCacheIsolated(self: *Self) bool {
         const sr = self.cop0.getDataRegister(12);
 
-        return (sr & 0x00010000) != 0;
+        return (sr & 0x0001_0000) != 0;
     }
 
     pub fn step(self: *Self) void {

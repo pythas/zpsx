@@ -187,7 +187,7 @@ pub const Dma = struct {
     pub fn init() Self {
         return .{
             .channels = [_]DmaChannel{DmaChannel.init()} ** 7,
-            .dpcr = @bitCast(@as(u32, 0x07654321)),
+            .dpcr = @bitCast(@as(u32, 0x0765_4321)),
             .dicr = @bitCast(@as(u32, 0)),
             .pending_channels = 0,
         };

@@ -160,8 +160,8 @@ const GP0_LENGTHS = init_lengths: {
 
     // vram transfers
     lengths[0x80] = 4;
-    lengths[0xA0] = 3;
-    lengths[0xC0] = 3;
+    lengths[0xa0] = 3;
+    lengths[0xc0] = 3;
 
     break :init_lengths lengths;
 };
@@ -488,30 +488,33 @@ pub const Gpu = struct {
             y < self.drawing_area_top or y > self.drawing_area_bottom) return;
 
         const index = @as(usize, @intCast(y)) * 1024 + @as(usize, @intCast(x));
-
         const color = Color{
             .r = r,
             .g = g,
             .b = b,
         };
+
         self.vram[index] = color.toVramColor(1);
     }
 
     fn writeWordToVram(self: *Self, word: u32) void {
-        const pixel1: u16 = @truncate(word & 0xffff);
+        const pixel1: u16 = @truncate(word);
         const pixel2: u16 = @truncate(word >> 16);
 
         self.writePixelToVram(pixel1);
         self.writePixelToVram(pixel2);
+
+        // if (self.transfer_current_x != self.transfer_dest_x) {
+        //     self.writePixelToVram(pixel2);
+        // }
     }
 
     fn writePixelToVram(self: *Self, pixel: u16) void {
         const x = self.transfer_current_x & 1023;
         const y = self.transfer_current_y & 511;
-
         const index = (@as(usize, y) * 1024) + @as(usize, x);
-        self.vram[index] = pixel;
 
+        self.vram[index] = pixel;
         self.transfer_current_x += 1;
 
         if (self.transfer_current_x >= self.transfer_dest_x + self.transfer_width) {
@@ -570,7 +573,6 @@ pub const Gpu = struct {
         const header = self.gp0_buffer[0];
         const opcode: u8 = @truncate(header >> 24);
 
-        // TODO: check ranges, eg. 0x20...0x3f, and use generic methods like gp0DrawPolygon
         switch (opcode) {
             0x00 => {},
             0x01 => self.gp0ResetCommandBuffer(),
